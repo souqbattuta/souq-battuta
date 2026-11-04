@@ -1,0 +1,147 @@
+html { font-family: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif; -webkit-font-smoothing: antialiased; }
+body { margin: 0; }
+button, [role="button"] { cursor: pointer; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.font-display { font-family: "Source Serif 4", Georgia, serif; font-weight: 700; }
+.font-arabic { font-family: "Noto Naskh Arabic", "Source Serif 4", Georgia, serif; }
+.landing-stage { min-height: 100vh; background: #e6d3b4; }
+.landing-fit { width: 100%; max-width: 72rem; margin: 0 auto; padding: 0 0.75rem 2rem; }
+.landing-poster { isolation: isolate; direction: ltr; position: relative; overflow: visible; }
+.landing-poster > picture.landing-hero { display: block; width: 100%; line-height: 0; }
+.landing-poster > picture.landing-hero img { width: 100%; height: auto; display: block; }
+a.stamp-hit {
+  z-index: 5;
+  box-sizing: border-box;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: block;
+  position: absolute;
+  text-decoration: none;
+}
+.stamp-tip {
+  z-index: 6;
+  color: #f7f1e4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  background: #10182e;
+  border: 1px solid #c9a24abf;
+  border-radius: 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0.4rem 0.7rem 0.38rem;
+  line-height: 1.15;
+  transition: opacity 0.16s, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translate(-50%) translateY(6px);
+}
+.stamp-tip .font-arabic { font-size: 0.78rem; font-weight: 700; }
+.stamp-tip .font-display { font-size: 0.72rem; font-weight: 700; }
+a.stamp-hit:hover .stamp-tip,
+a.stamp-hit:focus-visible .stamp-tip { opacity: 1; transform: translate(-50%) translateY(0); }
+.pointer-events-auto { pointer-events: auto; }
+.absolute { position: absolute; }
+.inset-0 { inset: 0; }
+
+@media (min-width: 641px) {
+  .landing-stage {
+    background: #e6d3b4 url("/brand/h/landing-wide-bg.1575791821.jpg") center / cover no-repeat;
+  }
+  a.signin-stamp {
+    position: absolute;
+    z-index: 7;
+    top: 0.35%;
+    right: 0.4%;
+    left: auto;
+    width: 16.5%;
+    height: auto;
+    margin: 0;
+    display: block;
+  }
+  a.signin-stamp .login-ticket {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+}
+
+@media (width <= 640px) {
+  .landing-stage { background: #f6c07a; }
+  .landing-fit {
+    background-color: #f6c07a;
+    background-image: image-set(
+      url("/brand/h/phone-landing-paper-860.80a25752f5.avif") type("image/avif"),
+      url("/brand/h/phone-landing-paper-860.189542f3b7.webp") type("image/webp")
+    );
+    background-position: top;
+    background-repeat: repeat-y;
+    background-size: 100%;
+    width: 100%;
+    max-width: 430px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    padding: 0 0 1.5rem;
+    overflow-x: hidden;
+    display: grid;
+    place-content: center;
+  }
+  .landing-poster { width: 100%; overflow: hidden; }
+  .landing-poster > picture.landing-hero { aspect-ratio: 1712 / 980; }
+  .landing-poster > picture.landing-hero img {
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+  }
+  a.signin-stamp {
+    z-index: 7;
+    min-height: 44px;
+    color: transparent !important;
+    width: 6.5rem !important;
+    height: auto !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    display: block !important;
+    top: 0.35rem !important;
+    left: auto !important;
+    right: 0.35rem !important;
+    -webkit-mask: none !important;
+    mask: none !important;
+    position: absolute;
+  }
+  a.signin-stamp span { display: none !important; }
+  a.signin-stamp .login-ticket { pointer-events: none; width: 100%; height: auto; display: block !important; }
+  a.stamp-join, a.stamp-discover {
+    max-width: 22rem;
+    min-height: 44px;
+    width: calc(100% - 32px) !important;
+    height: auto !important;
+    margin: 0.85rem auto 0 !important;
+    display: block !important;
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+  }
+  a.stamp-discover { margin-top: 0.7rem !important; }
+  a.stamp-hit .stamp-art { width: 100%; height: auto; display: block !important; }
+  a.stamp-hit:active, a.signin-stamp:active { transform: translateY(1px); }
+}
