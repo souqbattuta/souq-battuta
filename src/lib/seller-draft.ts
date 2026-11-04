@@ -5,7 +5,6 @@ const KEY = "souq-seller-draft";
 export type SellerDraft = {
   phone: string;
   username: string;
-  password: string;
   address: string;
   city?: string;
   areaLat?: number;
@@ -24,7 +23,7 @@ export function readSellerDraft(): SellerDraft | null {
     const raw = sessionStorage.getItem(KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SellerDraft;
-    if (!data.phone || !data.username || !data.password || !Array.isArray(data.categories)) return null;
+    if (!data.phone || !data.username || !Array.isArray(data.categories)) return null;
     return data;
   } catch {
     return null;

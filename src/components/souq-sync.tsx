@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { claimSouq, listSouqAccounts, pushSouq } from "@/lib/souq-sync";
+import { getSouqMe, pushSouq } from "@/lib/souq-sync";
 import { useSession } from "@/lib/session";
 
-const TOKEN = "souq-sync-token";
+const PRIVATE = ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone"];
 
 export function SouqSync() {
   useEffect(() => {
@@ -12,43 +12,32 @@ export function SouqSync() {
 
     async function pull() {
       try {
-        const rows = await listSouqAccounts();
-        if (stopped || !Array.isArray(rows)) return;
-        const state = useSession.getState() as { user?: { phone?: string } | null; accounts: Record<string, { updatedAt?: string; password?: string }> };
-        const mine = state.user?.phone;
-        const next = { ...state.accounts };
-        let changed = false;
-        for (const row of rows) {
-          const phone = String(row.phone ?? "");
-          if (!phone || phone === mine) continue;
-          if (next[phone]?.updatedAt === row.updatedAt) continue;
-          next[phone] = { ...row, password: next[phone]?.password };
-          changed = true;
-        }
-        if (changed) useSession.setState({ accounts: next });
+        const me = await getSouqMe();
+        if (stopped || !me.ok || !me.account) return;
+        const state = useSession.getState() as { user?: { phone?: string } | null };
+        if (state.user?.phone && state.user.phone !== me.account.phone) return;
+        useSession.setState({
+          user: { ...(state.user ?? {}), ...me.account },
+        });
       } catch {
         /* the notebook is not ready yet */
       }
     }
 
     async function pushNow() {
-      const state = useSession.getState() as { user?: { phone?: string } | null; accounts: Record<string, { password?: string }> };
+      const state = useSession.getState() as { user?: { phone?: string } | null; accounts: Record<string, Record<string, unknown>> };
       const phone = state.user?.phone;
       const account = phone ? state.accounts[phone] : null;
       if (!phone || !account) return;
-      const body = { ...account, phone };
+      const body: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(account)) {
+        if (PRIVATE.includes(key)) continue;
+        body[key] = value;
+      }
       const snap = JSON.stringify(body);
       if (snap === lastPushed) return;
       try {
-        let token = localStorage.getItem(TOKEN);
-        if (!token && account.password) {
-          const claimed = await claimSouq({ data: { phone, password: String(account.password), account: body } });
-          if (!claimed.ok) return;
-          token = claimed.token;
-          localStorage.setItem(TOKEN, token);
-        }
-        if (!token) return;
-        const saved = await pushSouq({ data: { token, account: body } });
+        const saved = await pushSouq({ data: { account: body } });
         if (saved.ok) lastPushed = snap;
       } catch {
         /* keep the local copy */

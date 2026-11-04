@@ -19,7 +19,7 @@ function BuyerJoinPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     const fd = new FormData(e.currentTarget);
@@ -33,14 +33,14 @@ function BuyerJoinPage() {
     const referral = String(fd.get("referral") ?? "");
     if (displayName.trim().length < 2) return setError(t.displayName);
     if (!isValidUsername(username)) return setError(t.shortUser);
-    if (usernameTaken(username, accounts)) return setError(t.usernameTaken);
+    if (usernameTaken(username, accounts, "")) return setError(t.usernameTaken);
     if (!isValidArabPhone(phone)) return setError(t.invalidPhone);
     if (password.length < 8) return setError(t.shortPass);
     if (password !== repeat) return setError(t.mismatch);
     if (!city) return setError(t.city);
     if (fd.get("age") !== "on" || fd.get("privacy") !== "on") return setError(t.ticks);
     setLoading(true);
-    startJoin({
+    const joined = await startJoin({
       phone,
       username,
       password,
@@ -50,6 +50,11 @@ function BuyerJoinPage() {
       referral,
       intent: "buyer",
     });
+    setLoading(false);
+    if (!joined.ok) {
+      setError(joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "exists" ? t.needVerify : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
+      return;
+    }
     void navigate({ to: "/otp" });
   }
 

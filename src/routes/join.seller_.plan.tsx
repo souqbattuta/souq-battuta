@@ -58,14 +58,13 @@ function SellerPlanPage() {
   const [promo, setPromo] = useState<PromoCode | null>(null);
   const [promoError, setPromoError] = useState("");
 
-  function finish(chosen: PlanId, applied?: PromoCode | null) {
+  async function finish(chosen: PlanId, applied?: PromoCode | null) {
     if (!draft) return;
     const gift = applied === undefined ? promo : applied;
     setLoading(true);
-    startJoin({
+    const joined = await startJoin({
       phone: draft.phone,
       username: draft.username,
-      password: draft.password,
       address: draft.address,
       city: draft.city,
       areaLat: draft.areaLat,
@@ -76,6 +75,11 @@ function SellerPlanPage() {
       promoCode: gift?.code,
       promoMonths: gift?.months,
     });
+    setLoading(false);
+    if (!joined.ok) {
+      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : ar ? "تعذر إرسال الرمز." : "The code could not be sent.");
+      return;
+    }
     clearSellerDraft();
     void navigate({ to: "/otp" });
   }

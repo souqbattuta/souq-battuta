@@ -13,7 +13,7 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, patchSouqOrder } from "@/lib/souq-sync";
+import { claimSouq, patchSouqOrder, placeSouqOrder, recordShopView, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
@@ -53,127 +53,6 @@ function upsertThread(mail, next) {
   return mail.map(
     (thread) => thread.id === next.id ? { ...found, names: { ...found.names, ...next.names }, lines: [...found.lines, ...next.lines.filter((line) => !known.has(line.id))] } : thread
   );
-}
-const DEMO_PASSWORDS = {};
-const SELLER_LOGIN = {
-  phone: "0790000001",
-  password: "souq1234"
-};
-function demoSellerAccount() {
-  const day = 24 * 60 * 60 * 1e3;
-  const now = Date.now();
-  const slug = "stall-790000001";
-  return {
-    phone: "+962790000001",
-    username: "Hala Stall",
-    password: SELLER_LOGIN.password,
-    displayName: "Hala Stall",
-    city: "Amman",
-    bio: "Home kitchen on the edge of Jabal Amman.",
-    address: "",
-    role: "seller",
-    friendsOfBattuta: false,
-    sellerPlan: "grow",
-    shopSlug: slug,
-    joinedAt: Date.UTC(2026, 2, 1),
-    usernameHistory: [],
-    usernameChanges: [],
-    demoVersion: 4,
-    allowSellerMail: true,
-    messages: [
-      { id: "sb-welcome", fromName: "Souq Battuta", fromPhone: "souq", body: "Hala Stall is live on Grow. New orders land on the workstation.", at: now - day },
-      { id: "sb-namos", fromName: "Namos Kitchen", fromPhone: "+962790000111", body: "Do you have extra knafeh trays on Thursday?", at: now - 2 * day }
-    ],
-    stallOpens: "10:00",
-    stallCloses: "20:00",
-    stallDays: "sat,sun,mon,tue,wed,thu",
-    stallForce: "open",
-    contactWhenClosed: true,
-    stallBio: "Home-cooked plates from our kitchen. Order on WhatsApp.",
-    stallBioAr: "\u0637\u0628\u062E \u0628\u064A\u062A \u0645\u0646 \u0645\u0637\u0628\u062E\u0646\u0627. \u0627\u0644\u0637\u0644\u0628 \u0639\u0644\u0649 \u0648\u0627\u062A\u0633\u0627\u0628.",
-    stallViews: 1280,
-    askQty: true,
-    stallSeries: [
-      { views: 42, clicks: 6, orders: 1 },
-      { views: 48, clicks: 8, orders: 1 },
-      { views: 55, clicks: 9, orders: 2 },
-      { views: 51, clicks: 7, orders: 1 },
-      { views: 70, clicks: 12, orders: 2 },
-      { views: 76, clicks: 14, orders: 3 },
-      { views: 68, clicks: 11, orders: 2 },
-      { views: 90, clicks: 16, orders: 3 },
-      { views: 96, clicks: 18, orders: 4 },
-      { views: 88, clicks: 15, orders: 3 },
-      { views: 110, clicks: 22, orders: 4 },
-      { views: 124, clicks: 26, orders: 5 },
-      { views: 118, clicks: 24, orders: 4 },
-      { views: 146, clicks: 31, orders: 6 }
-    ],
-    stallReviews: [
-      { user: "Lina", area: "Jabal Amman", score: 5, comment: "Maqluba arrived hot, and the portion was honest.", reply: "Ya hala Lina." },
-      { user: "Omar", area: "Weibdeh", score: 4, comment: "Knafeh was excellent. Delivery took a little longer than I hoped." },
-      { user: "Huda", area: "Abdoun", score: 5, comment: "This is the kitchen I send family to.", reply: "Thank you Huda." }
-    ],
-    sellerHistory: [
-      { id: "hist-order", title: "Order SB-1042", detail: "2 \xD7 Maqluba from Lina.", at: now - 4 * day, kind: "orders" },
-      { id: "hist-review", title: "Lina", detail: "You replied to a review.", at: now - 5 * day, kind: "reviews" },
-      { id: "hist-views", title: "Views", detail: "128 people viewed the stall.", at: now - 3 * day, kind: "views" }
-    ],
-    listings: [
-      { id: "hala-maqluba", shopSlug: slug, name: "Maqluba", nameAr: "\u0645\u0642\u0644\u0648\u0628\u0629", price: 18, desc: "Rice, eggplant, and chicken. Serves three.", descAr: "\u0631\u0632 \u0648\u0628\u0627\u0630\u0646\u062C\u0627\u0646 \u0648\u062F\u062C\u0627\u062C. \u062A\u0643\u0641\u064A \u062B\u0644\u0627\u062B\u0629.", images: ["/brand/shops/maqluba.jpg", "/brand/shops/mlokhieh.jpg", "/brand/shops/bread.jpg"], group: "Main", groupAr: "\u0631\u0626\u064A\u0633\u064A" },
-      { id: "hala-knafeh", shopSlug: slug, name: "Knafeh", nameAr: "\u0643\u0646\u0627\u0641\u0629", price: 6, desc: "Warm cheese knafeh, cut to order.", descAr: "\u0643\u0646\u0627\u0641\u0629 \u062C\u0628\u0646\u0629 \u062F\u0627\u0641\u064A\u0629\u060C \u062A\u064F\u0642\u0637\u0639 \u062D\u0633\u0628 \u0627\u0644\u0637\u0644\u0628.", images: ["/brand/shops/knafeh.jpg", "/brand/shops/knafeh-slice.jpg", "/brand/shops/knafeh-tray.jpg"], group: "Dessert", groupAr: "\u062D\u0644\u0648\u064A\u0627\u062A" },
-      { id: "hala-manakish", shopSlug: slug, name: "Manakish", nameAr: "\u0645\u0646\u0627\u0642\u064A\u0634", price: 2.5, desc: "Zaatar or cheese, baked that morning.", descAr: "\u0632\u0639\u062A\u0631 \u0623\u0648 \u062C\u0628\u0646\u0629\u060C \u0645\u0646 \u0641\u0631\u0646 \u0627\u0644\u0635\u0628\u062D.", images: ["/brand/shops/manakish.jpg", "/brand/shops/pita.jpg", "/brand/shops/bread.jpg"], group: "Main", groupAr: "\u0631\u0626\u064A\u0633\u064A" },
-      { id: "hala-kaak", shopSlug: slug, name: "Ka'ak", nameAr: "\u0643\u0639\u0643", price: 1.5, desc: "Sesame rings. Sold by the piece.", descAr: "\u0643\u0639\u0643 \u0633\u0645\u0633\u0645. \u064A\u0628\u0627\u0639 \u0628\u0627\u0644\u062D\u0628\u0629.", images: ["/brand/shops/kaak.jpg", "/brand/shops/bread.jpg"], group: "Sides", groupAr: "\u062C\u0627\u0646\u0628\u064A" }
-    ]
-  };
-}
-function demoBuyerAccount() {
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1e3;
-  const phone = "+962790000002";
-  const slug = "stall-790000001";
-  const line = (id, productName, total, ago, status, addressName) => ({
-    id,
-    shopSlug: slug,
-    shopName: "Hala Stall",
-    productName,
-    total,
-    addressName,
-    at: now - ago,
-    reviewed: status === "done",
-    status,
-    buyerPhone: phone
-  });
-  return {
-    phone,
-    username: "Lina",
-    password: "souq1234",
-    displayName: "Lina",
-    city: "Amman",
-    bio: "",
-    address: "Jabal Amman",
-    role: "buyer",
-    friendsOfBattuta: false,
-    joinedAt: Date.UTC(2026, 2, 2),
-    usernameHistory: [],
-    orders: [
-      line("hala-1", "2 \xD7 Maqluba", 36, 2 * 60 * 60 * 1e3, "new", "Home \xB7 Jabal Amman"),
-      line("hala-2", "1 \xD7 Knafeh", 6, day, "new", "Office \xB7 Weibdeh"),
-      line("hala-3", "3 \xD7 Manakish", 7.5, 3 * day, "done", "Home \xB7 Abdoun"),
-      line("hala-4", "1 \xD7 Ka'ak", 1.5, 6 * day, "done", "Pickup"),
-      line("hala-5", "1 \xD7 Maqluba", 18, 12 * day, "done", "Home \xB7 Jabal Amman"),
-      line("hala-6", "2 \xD7 Knafeh", 12, 20 * day, "done", "Office \xB7 Weibdeh"),
-      line("hala-7", "4 \xD7 Manakish", 10, 35 * day, "done", "Pickup"),
-      line("hala-8", "1 \xD7 Maqluba", 18, 50 * day, "done", "Home \xB7 Abdoun"),
-      line("hala-9", "2 \xD7 Ka'ak", 3, 70 * day, "done", "Home \xB7 Jabal Amman"),
-      line("hala-10", "1 \xD7 Knafeh", 6, 100 * day, "done", "Office \xB7 Weibdeh"),
-      line("hala-11", "2 \xD7 Maqluba", 36, 150 * day, "done", "Home \xB7 Abdoun"),
-      line("hala-12", "3 \xD7 Manakish", 7.5, 210 * day, "done", "Pickup"),
-      line("hala-13", "1 \xD7 Maqluba", 18, 300 * day, "done", "Home \xB7 Jabal Amman"),
-      line("hala-14", "2 \xD7 Knafeh", 12, 420 * day, "done", "Home \xB7 Abdoun"),
-      line("hala-15", "1 \xD7 Maqluba", 18, 520 * day, "done", "Home \xB7 Jabal Amman")
-    ]
-  };
 }
 function cleanChoices(choices) {
   const next = (choices ?? []).map((choice) => ({
@@ -613,160 +492,74 @@ const useSession = create()(
       reports: [],
       souqMail: [],
       setLang: (lang) => set({ lang }),
-      startJoin: (p) => {
-        DEMO_PASSWORDS[normalizePhone(p.phone)] = p.password;
-        set({ pending: { ...p, phone: normalizePhone(p.phone) } });
-      },
-      completeJoin: (otp) => {
-        const pending = get().pending;
-        if (!pending) return { ok: false, error: "No pending account" };
-        const valid = otp.replace(/\s/g, "") === "424242";
-        if (!valid) return { ok: false, error: "otp" };
-        const ref = pending.intent === "seller" ? "" : pending.referral?.trim().toLowerCase();
-        const friends = !!ref && (ref === "namos" || ref === "namos-kitchen" || ref === "\u0627\u0644\u062C\u0628\u0631");
-        const now = Date.now();
-        const promo = pending.promoCode ? checkPromo(pending.promoCode, get().promoRedemptions ?? [], now, get().promoCodes) : null;
-        if (pending.promoCode && !promo?.ok) return { ok: false, error: "promo" };
-        const plan = pending.intent === "seller" ? promo?.ok ? promo.promo.plan : pending.plan ?? "free" : void 0;
-        const shopSlug = pending.intent === "seller" ? slugForSeller({ phone: pending.phone, username: pending.username.trim() }) : void 0;
-        const months = promo?.ok ? promo.promo.months : plan === "free" ? 3 : plan ? 1 : 0;
-        const planEnds = plan ? now + months * 30 * 864e5 : void 0;
-        const account = {
-          phone: pending.phone,
-          username: pending.username.trim(),
-          password: pending.password,
-          displayName: pending.displayName?.trim() || pending.username.trim(),
-          city: pending.city?.trim() || "",
-          bio: pending.bio?.trim() || "",
-          address: pending.address?.trim() || "",
-          referral: pending.referral,
-          role: pending.intent === "seller" ? "seller" : "buyer",
-          friendsOfBattuta: friends,
-          referredBy: friends ? "namos-kitchen" : void 0,
-          sellerPlan: plan,
-          shopSlug,
-          planEnds,
-          categories: pending.categories,
-          promoCode: promo?.ok ? promo.promo.code : void 0,
-          promoMonths: promo?.ok ? promo.promo.months : void 0,
-          areaLat: pending.areaLat,
-          areaLng: pending.areaLng,
-          joinedAt: now,
-          usernameHistory: [],
-          notes: pending.intent === "seller" ? void 0 : [welcomeNote(now)],
-          sellerCode: pending.intent === "seller" && plan && plan !== "free" ? mintSellerCode(Object.values(get().accounts).map((item) => item.sellerCode)) : void 0
+      startJoin: async (p) => {
+        const phone = normalizePhone(p.phone);
+        const pending = { ...p, phone };
+        delete pending.password;
+        set({ pending });
+        const profile = {
+          username: String(p.username || phone.slice(-4)).trim(),
+          displayName: p.displayName,
+          city: p.city,
+          address: p.address,
+          bio: p.bio,
+          intent: p.intent === "seller" ? "seller" : "buyer",
+          plan: p.plan,
+          categories: p.categories,
+          promoCode: p.promoCode,
+          areaLat: p.areaLat,
+          areaLng: p.areaLng,
+          referral: p.referral
         };
-        if (pending.intent !== "seller" && ref) {
-          const seller = Object.values(get().accounts).find(
-            (item) => item.role === "seller" && item.sellerPlan && item.sellerPlan !== "free" && item.sellerCode?.trim().toLowerCase() === ref
-          );
-          if (seller?.sellerCode) {
-            account.referral = seller.sellerCode;
-            account.referredBy = seller.shopSlug || slugForSeller(seller);
-          }
+        if (p.password) {
+          const staged = await stageSouqSignup({ data: { phone, password: p.password, profile } });
+          if (!staged.ok) return staged;
         }
+        if (p.intent === "seller") {
+          await setSouqSignupPlan({ data: { phone, plan: p.plan, promoCode: p.promoCode, categories: p.categories } });
+        }
+        return sendSouqOtp({ data: { phone } });
+      },
+      completeJoin: async (otp) => {
+        const pending = get().pending;
+        if (!pending) return { ok: false, error: "otp" };
+        const code = String(otp).replace(/\s/g, "");
+        const res = await verifySouqOtp({ data: { phone: pending.phone, code } });
+        if (!res.ok) return res;
+        const account = { ...res.account, usernameHistory: [], notes: res.account.role === "seller" ? void 0 : [welcomeNote()] };
+        delete account.password;
         const user = toUser(account);
-        const redemption = promo?.ok && planEnds ? { code: promo.promo.code, phone: pending.phone, plan: promo.promo.plan, months: promo.promo.months, at: now, endsAt: planEnds } : null;
-        const accounts = { ...get().accounts, [account.phone]: account };
-        if (account.role === "buyer" && account.referral) {
-          const key = account.referral.trim().toLowerCase();
-          const sellerPhone = Object.keys(accounts).find(
-            (phone) => accounts[phone].role === "seller" && accounts[phone].sellerCode?.trim().toLowerCase() === key
-          );
-          if (sellerPhone) {
-            const seller = accounts[sellerPhone];
-            const used = Object.values(accounts).filter((item) => item.role === "buyer" && item.referral?.trim().toLowerCase() === key).length;
-            const earned = campaignStanding(used).earned;
-            const already = seller.campaignMonths ?? 0;
-            const extra = Math.max(0, earned - already);
-            const base = Math.max(seller.planEnds ?? 0, now);
-            accounts[sellerPhone] = {
-              ...seller,
-              campaignMonths: Math.max(already, earned),
-              planEnds: extra > 0 ? base + extra * 30 * 864e5 : seller.planEnds
-            };
-          }
-        }
         set({
           user,
           pending: null,
-          accounts,
-          notes: account.role === "buyer" ? account.notes ?? [] : get().notes,
-          promoRedemptions: redemption ? [...get().promoRedemptions ?? [], redemption] : get().promoRedemptions ?? []
+          accounts: { ...get().accounts, [account.phone]: account },
+          notes: account.role === "buyer" ? account.notes ?? [] : get().notes
         });
         return { ok: true };
       },
       signIn: async (phone, password, asRole = "buyer") => {
         const p = normalizePhone(phone);
         if (!isValidArabPhone(p)) return { ok: false, error: "phone" };
-        let remote = null;
+        if (password.length < 8) return { ok: false, error: "password" };
+        let remote;
         try {
-          remote = await claimSouq({ data: { phone: p, password, account: null } });
+          remote = await claimSouq({ data: { phone: p, password, asRole } });
         } catch {
-          remote = null;
+          return { ok: false, error: "password" };
         }
-        const known = remote?.ok ? { ...remote.account, password } : get().accounts[p];
-        const account = p === "+962790000001" && known?.demoVersion !== 4 ? demoSellerAccount() : p === "+962790000002" && !known ? demoBuyerAccount() : known ?? (p === "+962790000001" ? demoSellerAccount() : void 0);
-        const stored = account?.password ?? DEMO_PASSWORDS[p];
-        if (stored && stored !== password) return { ok: false, error: "password" };
-        if (!stored && password.length < 8) return { ok: false, error: "password" };
-        if (account) {
-          const role = account.role ?? "buyer";
-          if (asRole === "seller" && role !== "seller") return { ok: false, error: "notSeller" };
-          if (asRole === "buyer" && role === "seller") return { ok: false, error: "notBuyer" };
-          const joinedAt = account.joinedAt ?? Date.now();
-          const ready = { ...account, joinedAt, usernameHistory: account.usernameHistory ?? [], password };
-          if (remote?.ok) {
-            try {
-              localStorage.setItem("souq-sync-token", remote.token);
-            } catch {
-            }
-          }
-          set({
-            user: toUser(ready),
-            ...buyerLists(ready),
-            favorites: account.favorites ?? [],
-            bookmarks: account.bookmarks ?? [],
-            bookmarkLists: account.bookmarkLists ?? [],
-            followedLists: account.followedLists ?? [],
-            follows: account.follows ?? [],
-            pageLikes: account.pageLikes ?? [],
-            accounts: { ...get().accounts, [p]: ready }
-          });
-          return { ok: true };
-        }
-        if (asRole === "seller") return { ok: false, error: "notSeller" };
-        const existing = get().user;
-        const created = {
-          phone: p,
-          username: existing?.phone === p ? existing.username : p.slice(-4),
-          password,
-          displayName: existing?.phone === p ? existing.displayName || existing.username : p.slice(-4),
-          city: existing?.phone === p ? existing.city || "" : "",
-          bio: existing?.phone === p ? existing.bio || "" : "",
-          address: existing?.phone === p ? existing.address || "" : "",
-          role: existing?.phone === p ? existing.role || "buyer" : "buyer",
-          friendsOfBattuta: existing?.phone === p ? existing.friendsOfBattuta : false,
-          referredBy: existing?.phone === p ? existing.referredBy : void 0,
-          sellerPlan: existing?.phone === p ? existing.sellerPlan : void 0,
-          shopSlug: existing?.phone === p ? existing.shopSlug : void 0,
-          joinedAt: existing?.phone === p ? existing.joinedAt ?? Date.now() : Date.now()
-        };
+        if (!remote.ok) return remote;
+        const account = { ...remote.account, usernameHistory: remote.account.usernameHistory ?? [] };
+        delete account.password;
         set({
-          user: toUser(created),
-          accounts: { ...get().accounts, [p]: created },
-          ...buyerLists(created),
-          favorites: [],
-          bookmarks: [],
-          bookmarkLists: [],
-          followedLists: [],
-          follows: [],
-          pageLikes: []
+          user: toUser(account),
+          ...buyerLists(account),
+          accounts: { ...get().accounts, [p]: account }
         });
-        DEMO_PASSWORDS[p] = password;
         return { ok: true };
       },
       signOut: () => {
+        void signOutSouq();
+        try { localStorage.removeItem("souq-sync-token"); } catch {}
         const s = get();
         const phone = s.user?.phone;
         const prev = phone ? s.accounts[phone] : void 0;
@@ -814,7 +607,6 @@ const useSession = create()(
         const base = prev ?? {
           phone: user.phone,
           username: next.username,
-          password: DEMO_PASSWORDS[user.phone] ?? "",
           displayName: next.displayName || next.username,
           city: next.city || "",
           bio: next.bio || "",
@@ -875,8 +667,7 @@ const useSession = create()(
             [user.phone]: {
               ...prev ?? {
                 phone: user.phone,
-                password: DEMO_PASSWORDS[user.phone] ?? "",
-                displayName: user.displayName || next,
+                      displayName: user.displayName || next,
                 city: user.city || "",
                 bio: user.bio || "",
                 address: user.address || "",
@@ -959,6 +750,7 @@ const useSession = create()(
           ...get().notes
         ];
         withBuyer(get, set, { orders: [saved, ...get().orders], notes });
+        void placeSouqOrder({ data: { shopSlug: order.shopSlug, productName: order.productName, addressName: order.addressName } });
       },
       voteReview: (key, vote) => {
         const phone = get().user?.phone;
@@ -1034,6 +826,7 @@ const useSession = create()(
           orders,
           notes: [{ id: `n-${Date.now()}`, title: "Review posted", body: saved.comment, href: `/shop/${saved.shopSlug}`, at: Date.now() }, ...get().notes]
         });
+        void saveSouqReview({ data: { shopSlug: saved.shopSlug, score: saved.score, comment: saved.comment, authorName: saved.user, area: saved.area } });
       },
       deleteReview: (id) => {
         const user = get().user;
@@ -1184,6 +977,21 @@ const useSession = create()(
         };
         const listings = [next, ...get().listings ?? []];
         withBuyer(get, set, { listings });
+        void (async () => {
+          const urls = [];
+          for (const img of images) {
+            if (typeof img === "string" && img.startsWith("data:")) {
+              const up = await uploadListingImage({ data: { dataUrl: img } });
+              if (up.ok) urls.push(up.url);
+            } else if (typeof img === "string" && (img.startsWith("https://") || img.startsWith("/"))) urls.push(img);
+          }
+          const imageUrl = urls.find((url) => !url.startsWith("data:"));
+          await saveSouqListing({ data: { id: next.id, name, price: next.price, imageUrl, body: { nameAr, desc: next.desc } } });
+          if (imageUrl) {
+            const current = get().listings ?? [];
+            set({ listings: current.map((item) => item.id === next.id ? { ...item, images: urls.length ? urls : item.images } : item) });
+          }
+        })();
         return { ok: true };
       },
       updateListing: (id, listing) => {
@@ -1369,53 +1177,10 @@ const useSession = create()(
           orders: (get().orders ?? []).map((order) => order.id === id ? done : order),
           notes: get().user?.phone === buyerPhone ? accounts[buyerPhone].notes ?? [] : get().notes
         });
-        try {
-          const token = localStorage.getItem("souq-sync-token");
-          if (token) void patchSouqOrder({ data: { token, orderId: id, status: "done" } });
-        } catch {
-        }
+        void patchSouqOrder({ data: { orderId: id, status: "done" } });
       },
-      ensureDirectory: () => {
-        const phone = "+962790000001";
-        if (get().accounts[phone]?.listings?.length) return;
-        const seed = demoSellerAccount();
-        const existing = get().accounts[phone];
-        set({
-          accounts: {
-            ...get().accounts,
-            [phone]: existing ? { ...seed, ...existing, listings: existing.listings?.length ? existing.listings : seed.listings, shopSlug: existing.shopSlug || seed.shopSlug } : seed
-          }
-        });
-      },
-      ensureHalaDemo: () => {
-        const phone = "+962790000001";
-        if (get().user?.phone !== phone) return;
-        const buyer = demoBuyerAccount();
-        const groups = {
-          "hala-maqluba": { group: "Main", groupAr: "\u0631\u0626\u064A\u0633\u064A" },
-          "hala-manakish": { group: "Main", groupAr: "\u0631\u0626\u064A\u0633\u064A" },
-          "hala-knafeh": { group: "Dessert", groupAr: "\u062D\u0644\u0648\u064A\u0627\u062A" },
-          "hala-kaak": { group: "Sides", groupAr: "\u062C\u0627\u0646\u0628\u064A" }
-        };
-        const current = get().listings ?? [];
-        if (current.some((item) => groups[item.id] && !item.group)) {
-          set({ listings: current.map((item) => groups[item.id] && !item.group ? { ...item, ...groups[item.id] } : item) });
-        }
-        if (get().accounts[phone]?.demoVersion === 4 && get().accounts[buyer.phone]) return;
-        const seed = demoSellerAccount();
-        set({
-          accounts: { ...get().accounts, [phone]: seed, [buyer.phone]: buyer },
-          user: toUser(seed),
-          ...buyerLists(seed),
-          favorites: seed.favorites ?? [],
-          bookmarks: seed.bookmarks ?? [],
-          bookmarkLists: seed.bookmarkLists ?? [],
-          followedLists: seed.followedLists ?? [],
-          follows: seed.follows ?? [],
-          pageLikes: seed.pageLikes ?? [],
-          waTaps: { ...get().waTaps ?? {}, [seed.shopSlug ?? ""]: 186 }
-        });
-      },
+      ensureDirectory: () => {},
+      ensureHalaDemo: () => {},
       markSellerSeen: (ids) => {
         const sellerSeen = Array.from(/* @__PURE__ */ new Set([...get().sellerSeen ?? [], ...ids]));
         withBuyer(get, set, { sellerSeen });
@@ -1622,11 +1387,7 @@ const useSession = create()(
       readSouq: (id) => {
         set({ souqMail: (get().souqMail ?? []).map((item) => item.id === id ? { ...item, read: true } : item) });
       },
-      enterDesk: (pass) => {
-        if (pass.trim().toLowerCase() !== "hala-desk") return false;
-        set({ staff: true });
-        return true;
-      },
+      enterDesk: () => false,
       leaveDesk: () => set({ staff: false }),
       issuePromo: (promo) => {
         const code = promo.code.trim().toUpperCase().replace(/\s+/g, "-");
@@ -1662,10 +1423,8 @@ const useSession = create()(
         set({ user: toUser(next), accounts: { ...get().accounts, [user.phone]: next } });
       },
       bumpStallViews: (slug) => {
-        const account = sellerByPublicSlug(slug, get().accounts);
-        if (!account || account.phone === get().user?.phone) return;
-        const next = { ...account, stallViews: (account.stallViews ?? 0) + 1 };
-        set({ accounts: { ...get().accounts, [account.phone]: next } });
+        if (!slug || slug === get().user?.shopSlug) return;
+        void recordShopView({ data: { slug } });
       },
       addHelloPost: (input) => {
         const user = get().user;
@@ -1840,8 +1599,7 @@ const useSession = create()(
               ...prev ?? {
                 phone: user.phone,
                 username: user.username,
-                password: "",
-                displayName: user.displayName || user.username,
+                      displayName: user.displayName || user.username,
                 city: user.city || "",
                 bio: user.bio || "",
                 address: user.address || "",
@@ -1892,12 +1650,32 @@ const useSession = create()(
     }),
     {
       name: "souq-battuta-session",
+      partialize: (state) => {
+        const accounts = {};
+        for (const [phone, account] of Object.entries(state.accounts ?? {})) {
+          if (!account || typeof account !== "object") continue;
+          const copy = { ...account };
+          delete copy.password;
+          accounts[phone] = copy;
+        }
+        const pending = state.pending ? { ...state.pending } : null;
+        if (pending) delete pending.password;
+        return { ...state, accounts, pending };
+      },
       storage: createJSONStorage(() => ({
         getItem: async (name) => {
           const raw = localStorage.getItem(name);
           if (!raw) return null;
           try {
-            return JSON.stringify(await hydrateImages(JSON.parse(raw)));
+            const parsed = JSON.parse(raw);
+            const state = parsed?.state ?? parsed;
+            if (state?.accounts) {
+              for (const account of Object.values(state.accounts)) {
+                if (account && typeof account === "object") delete account.password;
+              }
+            }
+            if (state?.pending) delete state.pending.password;
+            return JSON.stringify(await hydrateImages(parsed));
           } catch {
             try {
               localStorage.removeItem(name);
@@ -1932,7 +1710,6 @@ const useSession = create()(
   )
 );
 export {
-  SELLER_LOGIN,
   directoryShops,
   isValidArabPhone,
   isValidJoPhone,

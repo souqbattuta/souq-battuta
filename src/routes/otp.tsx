@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
+import { sendSouqOtp } from "@/lib/souq-sync";
 
 export const Route = createFileRoute("/otp")({ component: OtpPage });
 
@@ -14,19 +15,38 @@ function OtpPage() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [wait, setWait] = useState(60);
+  const ar = lang === "ar";
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (wait <= 0) return;
+    const timer = window.setTimeout(() => setWait((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [wait]);
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const otp = String(new FormData(e.currentTarget).get("otp") ?? "");
     setLoading(true);
-    const res = completeJoin(otp);
+    const res = await completeJoin(otp);
     setLoading(false);
     if (!res.ok) {
-      const ar = lang === "ar";
-      setError(res.error === "promo" ? (ar ? "الرمز الترويجي لم يعد صالحاً." : "That promotional code is no longer valid.") : t.badOtp);
+      setError(res.error === "expired" ? t.otpExpired : res.error === "attempts" ? t.otpAttempts : res.error === "promo" ? (ar ? "الرمز الترويجي لم يعد صالحاً." : "That promotional code is no longer valid.") : t.badOtp);
       return;
     }
     void navigate({ to: "/welcome" });
+  }
+
+  async function resend() {
+    if (!pending?.phone || wait > 0) return;
+    setError("");
+    const res = await sendSouqOtp({ data: { phone: pending.phone } });
+    if (!res.ok) {
+      if (res.retryAfter) setWait(res.retryAfter);
+      setError(res.error === "unconfigured" ? t.otpUnconfigured : res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
+      return;
+    }
+    setWait(res.retryAfter || 60);
   }
 
   return (
@@ -42,6 +62,7 @@ function OtpPage() {
           <input
             name="otp"
             inputMode="numeric"
+            autoComplete="one-time-code"
             maxLength={6}
             className="h-14 w-full rounded-md border border-line bg-cream text-center text-2xl tracking-[0.4em]"
             placeholder="••••••"
@@ -60,6 +81,9 @@ function OtpPage() {
             {t.verify}
           </button>
         </form>
+        <button type="button" className="mt-4 text-sm font-semibold text-ink underline disabled:opacity-50" disabled={wait > 0} onClick={() => void resend()}>
+          {wait > 0 ? t.otpWait.replace("{s}", String(wait)) : t.otpResend}
+        </button>
       </main>
     </Shell>
   );

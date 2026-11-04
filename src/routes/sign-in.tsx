@@ -65,9 +65,46 @@ function SignInPage() {
       setError(lang === "ar" ? "ما قدرنا نسجل الدخول. حدّث الصفحة وحاول مرة ثانية." : "Could not sign in. Refresh the page and try again.");
       return;
     }
+    const result = res as { ok: boolean; error?: string };
     setLoading(false);
-    if (!res.ok) {
-      setError(res.error === "phone" ? t.invalidPhone : res.error === "notSeller" ? t.notSeller : res.error === "notBuyer" ? t.notBuyer : res.error === "password" ? t.wrongPass : t.shortPass);
+    if (!result.ok) {
+      if (result.error === "reset") {
+        const startJoin = useSession.getState().startJoin as (input: {
+          phone: string;
+          password: string;
+          username: string;
+          displayName: string;
+          intent: "buyer";
+        }) => Promise<{ ok: boolean; error?: string }>;
+        const staged = await startJoin({
+          phone,
+          password,
+          username: phone.slice(-4),
+          displayName: phone.slice(-4),
+          intent: "buyer",
+        });
+        if (staged.ok) {
+          void navigate({ to: "/otp" });
+          return;
+        }
+        setError(staged.error === "unconfigured" ? t.otpUnconfigured : t.mustReset);
+        return;
+      }
+      setError(
+        result.error === "phone"
+          ? t.invalidPhone
+          : result.error === "notSeller"
+            ? t.notSeller
+            : result.error === "notBuyer"
+              ? t.notBuyer
+              : result.error === "lockout"
+                ? t.lockedOut
+                : result.error === "verify"
+                  ? t.needVerify
+                  : result.error === "password"
+                    ? t.wrongPass
+                    : t.shortPass,
+      );
       return;
     }
     if (fd.get("remember")) sessionStorage.removeItem("souq-ephemeral");
