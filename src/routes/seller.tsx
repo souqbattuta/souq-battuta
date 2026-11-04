@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, type ItemChoice, type PlanId } from "@/lib/data";
-import { shareSlug, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
+import { slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
@@ -67,7 +67,6 @@ function SellerDesk() {
   const deleteSellerLine = useSession((s) => s.deleteSellerLine);
   const ensureHalaDemo = useSession((s) => s.ensureHalaDemo);
   const ensureSouqInbox = useSession((s) => s.ensureSouqInbox);
-  const [tab, setTab] = useState<DeskTab>(tabFromUrl);
   const [editPane, setEditPane] = useState<"about" | "photo" | "hours" | "products" | "algorithm" | "socials">(item ? "products" : "about");
   const [editingId, setEditingId] = useState(item);
   const [mainPhoto, setMainPhoto] = useState<string | null>(null);
@@ -109,10 +108,6 @@ function SellerDesk() {
     setAboutAr(accounts[user.phone]?.stallBioAr || "");
     setAboutReady(true);
   }, [aboutReady, accounts, user]);
-
-  useEffect(() => {
-    setTab(tabFromUrl);
-  }, [tabFromUrl]);
 
   useEffect(() => {
     if (!noteFromUrl) return;
@@ -164,6 +159,7 @@ function SellerDesk() {
     );
   }
 
+  const tab = tabFromUrl;
   const planId = user.sellerPlan ?? "free";
   const plan = PLANS[planId];
   const subCount = planId === "grow" || planId === "premium" ? 5 : planId === "free" ? 3 : plan.images - 1;
@@ -175,7 +171,6 @@ function SellerDesk() {
     if (next === tab) return;
     tabClick.current = true;
     const y = window.scrollY;
-    setTab(next);
     void navigate({
       to: "/seller",
       search: { tab: next, item: next === "edit" ? editingId : "", order: next === "orders" ? orderFromUrl : "", note: next === "notes" ? noteFromUrl : "" },
@@ -187,7 +182,6 @@ function SellerDesk() {
 
   function openProduct(id: string) {
     const found = (listings ?? []).find((entry) => entry.id === id);
-    setTab("edit");
     setEditPane("products");
     setEditingId(id);
     if (found) {
@@ -282,7 +276,7 @@ function SellerDesk() {
     reviews: account?.stallReviews,
     cleared: sellerCleared ?? [],
     views: account?.stallViews ?? 0,
-    daysLeft: membershipDays(planId, user.planEnds ?? account?.planEnds, user.joinedAt ?? account?.joinedAt),
+    daysLeft: membershipDays(user.planEnds ?? account?.planEnds),
   });
   const threads = (mail ?? []).filter((thread) => thread.phones.includes(user.phone));
   const stallReviews = account?.stallReviews ?? [];
@@ -321,7 +315,7 @@ function SellerDesk() {
               <p className="mt-1 text-sm text-ink">
                 {ar ? plan.nameAr : plan.name}
                 {" · "}
-                {membershipLine(planId, user.planEnds ?? account?.planEnds, user.joinedAt ?? account?.joinedAt, ar)}
+                {membershipLine(user.planEnds ?? account?.planEnds, ar)}
               </p>
               {(planId === "grow" || planId === "premium") && (
                 <p className="mt-1 text-sm text-ink">
@@ -1089,26 +1083,21 @@ function UpgradeCode({ ar }: { ar: boolean }) {
   );
 }
 
-function membershipEnd(plan: string, planEnds?: number, joinedAt?: number) {
-  if (planEnds) return planEnds;
-  const start = joinedAt ?? Date.now();
-  return start + (plan === "free" ? 90 : 30) * 86400000;
+function membershipDays(planEnds?: number) {
+  if (!planEnds) return 0;
+  return Math.ceil((planEnds - Date.now()) / 86400000);
 }
 
-function membershipDays(plan: string, planEnds?: number, joinedAt?: number) {
-  return Math.ceil((membershipEnd(plan, planEnds, joinedAt) - Date.now()) / 86400000);
-}
-
-function membershipLine(plan: string, planEnds: number | undefined, joinedAt: number | undefined, ar: boolean) {
-  const end = membershipEnd(plan, planEnds, joinedAt);
-  const days = Math.ceil((end - Date.now()) / 86400000);
-  const date = new Date(end).toLocaleDateString(ar ? "ar" : "en", { day: "numeric", month: "short" });
+function membershipLine(planEnds: number | undefined, ar: boolean) {
+  if (!planEnds) return ar ? "لا تاريخ انتهاء بعد." : "No end date yet.";
+  const days = Math.ceil((planEnds - Date.now()) / 86400000);
+  const date = new Date(planEnds).toLocaleDateString(ar ? "ar" : "en", { day: "numeric", month: "short" });
   if (days < 0) return ar ? `انتهى في ${date}` : `Ended ${date}`;
   return ar ? `${days} أيام باقية · ينتهي ${date}` : `${days} days left · ends ${date}`;
 }
 
 function orderRef(id: string) {
-  return `SB-${id.replace(/\D/g, "").slice(-4).padStart(4, "0")}`;
+  return id;
 }
 
 function orderedListings<T extends { group?: string; name: string }>(items: T[]) {
@@ -2038,8 +2027,7 @@ function StallShare({ slug, planId, ar }: { slug: string; planId: PlanId; ar: bo
   const linkRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<"" | "link" | "code">("");
   const paid = planId !== "free";
-  const personal = user ? shareSlug(user, accounts) : slug;
-  const path = `/s/${personal}`;
+  const path = `/shop/${slug}`;
   const used = countCodeUses(accounts, code);
   const standing = campaignStanding(used);
 

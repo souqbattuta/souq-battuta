@@ -48,7 +48,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     else if (!isValidUsername(username)) return setError(t.shortUser);
     if (usernameTaken(username, accounts, "")) return setError(t.usernameTaken);
     if (!isValidArabPhone(phone)) return setError(t.invalidPhone);
-    if (password.length < 8) return setError(t.shortPass);
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return setError(t.shortPass);
     if (password !== repeat) return setError(t.mismatch);
     if (!city) return setError(t.city);
     if (intent === "seller" && categories.length === 0) return setError(ar ? "اختر قسماً واحداً على الأقل." : "Pick at least one aisle.");

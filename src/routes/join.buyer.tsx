@@ -35,7 +35,7 @@ function BuyerJoinPage() {
     if (!isValidUsername(username)) return setError(t.shortUser);
     if (usernameTaken(username, accounts, "")) return setError(t.usernameTaken);
     if (!isValidArabPhone(phone)) return setError(t.invalidPhone);
-    if (password.length < 8) return setError(t.shortPass);
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return setError(t.shortPass);
     if (password !== repeat) return setError(t.mismatch);
     if (!city) return setError(t.city);
     if (fd.get("age") !== "on" || fd.get("privacy") !== "on") return setError(t.ticks);
