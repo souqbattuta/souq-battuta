@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
 
 const ORDER_PHONE = "962795636663";
-const GREET = "★★★ *Hala Beak from Souq Battuta* ★★★";
+const GREET = "★★★ *Hello from Souq Battuta* ★★★";
 const GREET_AR = "★★★  *هلا بيك من سوق بطوطة*  ★★★";
 
 function centerWa(line: string, width: number) {

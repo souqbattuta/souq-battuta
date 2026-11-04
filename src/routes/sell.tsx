@@ -1,28 +1,53 @@
+import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { PlanStamp } from "@/components/plan-stamp";
+import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
+import { submitSouqPayment } from "@/lib/souq-sync";
 import { cn } from "@/lib/cn";
 
 export const Route = createFileRoute("/sell")({ component: SellPage });
+
+const VISIBILITY: Record<PlanId, string> = {
+  free: "Standard visibility",
+  basic: "Boosted",
+  grow: "Priority",
+  premium: "Top priority",
+};
 
 function SellPage() {
   const lang = useSession((s) => s.lang);
   const t = copy[lang];
   const user = useSession((s) => s.user);
   const becomeSeller = useSession((s) => s.becomeSeller);
+  const notePayment = useSession((s) => s.notePayment);
   const navigate = useNavigate();
+  const [pay, setPay] = useState<PlanId | null>(null);
+  const ar = lang === "ar";
 
   function pick(plan: PlanId) {
     if (!user) {
       void navigate({ to: "/join", search: { intent: "seller" } });
       return;
     }
-    const slug = user.shopSlug ?? `stall-${user.username.toLowerCase()}`;
-    becomeSeller(plan, slug);
-    void navigate({ to: "/seller", search: { item: "", tab: "analytics", order: "", note: "" } });
+    if (plan === "free") {
+      const slug = user.shopSlug ?? `stall-${user.username.toLowerCase()}`;
+      becomeSeller(plan, slug);
+      void navigate({ to: "/seller", search: { item: "", tab: "analytics", order: "", note: "" } });
+      return;
+    }
+    setPay(plan);
+  }
+
+  function paid(choice: PaymentChoice) {
+    setPay(null);
+    void submitSouqPayment({ data: { plan: choice.plan, billingPeriod: choice.period, paymentMethod: choice.method, paymentRef: choice.ref } }).then((res) => {
+      if (res.ok) notePayment({ pendingPlan: choice.plan, paymentStatus: "pending", paymentMethod: choice.method, paymentRef: choice.ref, billingPeriod: choice.period });
+      void navigate({ to: "/seller", search: { item: "", tab: "analytics", order: "", note: "" } });
+    });
   }
 
   return (
@@ -43,7 +68,8 @@ function SellPage() {
                   {p.badge !== "none" ? <PlanStamp plan={id} /> : <span className="text-xs text-mute">no stamp</span>}
                 </div>
                 <p className="mt-1 text-lg font-semibold">{p.price}</p>
-                <p className="text-xs text-mute">{p.priceNote}</p>
+                <p className="text-xs text-mute">{id === "free" ? (ar ? "مجاناً لثلاثة أشهر" : "Free for 3 months") : p.priceNote}</p>
+                <p className="text-xs font-semibold text-ink">{ar ? { free: "ظهور عادي", basic: "ظهور أقوى", grow: "أولوية", premium: "الأولوية الأولى" }[id] : VISIBILITY[id]}</p>
                 <p className="mt-3 flex-1 text-sm">{lang === "ar" ? p.blurbAr : p.blurb}</p>
                 <ul className="mt-3 space-y-1 text-xs text-mute">
                   <li>{p.listings} listings · {p.images} photos each</li>
@@ -83,6 +109,16 @@ function SellPage() {
             );
           })}
         </div>
+        {pay && (
+          <PaymentDialog
+            ar={ar}
+            plan={pay}
+            amount={PLANS[pay].price}
+            onClose={() => setPay(null)}
+            onFree={() => setPay(null)}
+            onPaid={paid}
+          />
+        )}
       </main>
     </Shell>
   );

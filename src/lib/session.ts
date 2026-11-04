@@ -12,10 +12,11 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, patchSouqOrder, placeSouqOrder, recordShopView, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, patchSouqOrder, placeSouqOrder, recordShopView, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
+import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
 const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1e3;
 function socialVerifyCode(phone: any) {
@@ -97,13 +98,10 @@ const ARAB_DIAL = [
   { code: "20", min: 10, max: 10, mobile: /^1\d{9}$/ }
 ].sort((a, b) => b.code.length - a.code.length);
 function normalizePhone(raw: any) {
-  let text = raw.trim().replace(/[\s().-]/g, "");
+  let text = String(raw ?? "").trim().replace(/[\s().-]/g, "");
   if (text.startsWith("00")) text = `+${text.slice(2)}`;
-  if (text.startsWith("+")) {
-    const digits2 = text.slice(1).replace(/\D/g, "");
-    return digits2 ? `+${digits2}` : "";
-  }
-  const digits = text.replace(/\D/g, "");
+  const digits = text.startsWith("+") ? text.slice(1).replace(/\D/g, "") : text.replace(/\D/g, "");
+  if (/^9620?7\d{8}$/.test(digits)) return `+962${digits.slice(-9)}`;
   if (/^07\d{8}$/.test(digits)) return `+962${digits.slice(1)}`;
   if (/^7\d{8}$/.test(digits)) return `+962${digits}`;
   return digits ? `+${digits}` : "";
@@ -160,10 +158,21 @@ function livePromotions(accounts: any) {
     (account) => (account.promotions ?? []).filter((promo: any) => new Date(promo.at).toISOString().slice(0, 7) === month).map((promo: any) => ({ promo, slug: slugForSeller(account) }))
   ).sort((a, b) => b.promo.at - a.promo.at);
 }
+function billingPhase(account: any) {
+  if (!account) return "active";
+  if (account.paymentStatus === "pending" && account.pendingPlan) return "pending";
+  const ends = Number(account.planEnds || 0);
+  if (!ends) return "active";
+  const now = Date.now();
+  if (now <= ends) return "active";
+  if (now <= ends + 5 * 86400000) return "grace";
+  return "paused";
+}
 function directoryShops(accounts: any) {
   const extras = [];
   for (const account of rows(accounts)) {
     if (account.role !== "seller") continue;
+    if (billingPhase(account) === "paused") continue;
     const slug = slugForSeller(account);
     if (SHOPS.some((shop) => shop.slug === slug)) continue;
     const products = (account.listings ?? []).filter((item: any) => item.shopSlug === slug || item.shopSlug === account.shopSlug).map((item: any) => publicProduct(item, account.sellerPlan === "premium")).filter((item: any) => Boolean(item));
@@ -346,6 +355,10 @@ function toUser(account: any) {
     stallViews: account.stallViews,
     joinedAt: account.joinedAt,
     planEnds: account.planEnds,
+    paymentStatus: account.paymentStatus,
+    pendingPlan: account.pendingPlan,
+    billingPeriod: account.billingPeriod,
+    paymentRef: account.paymentRef,
     categories: account.categories,
     promoCode: account.promoCode,
     promoMonths: account.promoMonths,
@@ -496,9 +509,10 @@ const useSession = create<any>()(
         const pending = { ...p, phone };
         delete pending.password;
         set({ pending });
+        saveJoinPending(pending);
         const profile = {
           username: String(p.username || phone.slice(-4)).trim(),
-          displayName: p.displayName,
+          displayName: p.displayName || p.shopName,
           city: p.city,
           address: p.address,
           bio: p.bio,
@@ -508,20 +522,29 @@ const useSession = create<any>()(
           promoCode: p.promoCode,
           areaLat: p.areaLat,
           areaLng: p.areaLng,
-          referral: p.referral
+          referral: p.referral,
+          billingPeriod: p.billingPeriod,
+          paymentStatus: p.paymentStatus,
+          paymentMethod: p.paymentMethod,
+          paymentRef: p.paymentRef,
+          pendingPlan: p.paymentStatus === "pending" ? p.plan : undefined
         };
         if (p.password) {
           const staged = await stageSouqSignup({ data: { phone, password: p.password, profile: profile as any } });
           if (!staged.ok) return staged;
         }
         if (p.intent === "seller") {
-          await setSouqSignupPlan({ data: { phone, plan: p.plan, promoCode: p.promoCode, categories: p.categories } as any });
+          const planned = await setSouqSignupPlan({ data: { phone, plan: p.plan, promoCode: p.promoCode, categories: p.categories, shopName: p.displayName || p.shopName, billingPeriod: p.billingPeriod, paymentStatus: p.paymentStatus, paymentMethod: p.paymentMethod, paymentRef: p.paymentRef } as any });
+          if (!planned.ok) return planned;
         }
-        return sendSouqOtp({ data: { phone } });
+        const sent = await sendSouqOtp({ data: { phone } });
+        if (!sent.ok && sent.error !== "cooldown") return sent;
+        return { ok: true, retryAfter: sent.retryAfter || 60 };
       },
       completeJoin: async (otp: any) => {
-        const pending = get().pending;
-        if (!pending) return { ok: false, error: "otp" };
+        let pending = get().pending;
+        if (!pending?.phone) pending = readJoinPending();
+        if (!pending?.phone) return { ok: false, error: "otp" };
         const code = String(otp).replace(/\s/g, "");
         const res = await verifySouqOtp({ data: { phone: pending.phone, code } });
         if (!res.ok) return res;
@@ -534,7 +557,15 @@ const useSession = create<any>()(
           accounts: { ...get().accounts, [account.phone]: account },
           notes: account.role === "buyer" ? account.notes ?? [] : get().notes
         });
+        clearJoinPending();
+        clearSellerDraft();
         return { ok: true };
+      },
+      restorePending: () => {
+        if (get().pending?.phone) return get().pending;
+        const saved = readJoinPending();
+        if (saved?.phone) set({ pending: saved });
+        return saved;
       },
       signIn: async (phone: any, password: any, asRole = "buyer") => {
         const p = normalizePhone(phone);
@@ -1632,6 +1663,15 @@ const useSession = create<any>()(
         });
         return { ok: true };
       },
+      notePayment: (patch: any) => set((s: any) => {
+        if (!s.user) return {};
+        const prev = s.accounts[s.user.phone] ?? { phone: s.user.phone };
+        const next = { ...prev, ...patch };
+        return {
+          user: { ...s.user, ...patch },
+          accounts: { ...s.accounts, [s.user.phone]: next }
+        };
+      }),
       becomeSeller: (plan: any, shopSlug: any) => set((s: any) => {
         if (!s.user) return {};
         const now = Date.now();
@@ -1710,6 +1750,7 @@ const useSession = create<any>()(
   )
 );
 export {
+  billingPhase,
   directoryShops,
   isValidArabPhone,
   isValidJoPhone,

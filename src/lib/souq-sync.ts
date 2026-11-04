@@ -32,6 +32,11 @@ const profileSchema = z
     areaLat: z.number().finite().optional(),
     areaLng: z.number().finite().optional(),
     referral: z.string().trim().max(40).optional(),
+    billingPeriod: z.enum(["monthly", "yearly"]).optional(),
+    paymentStatus: z.enum(["pending", "active"]).optional(),
+    paymentMethod: z.enum(["free", "cliq", "card"]).optional(),
+    paymentRef: z.string().trim().max(80).optional(),
+    pendingPlan: PLAN.optional(),
   })
   .strict();
 
@@ -180,6 +185,11 @@ function publicProfile(phone: string, data: Record<string, unknown>, row: { role
     role: row.role === "seller" ? "seller" : "buyer",
     sellerPlan: row.plan ?? undefined,
     shopSlug: row.shop_slug ?? undefined,
+    planEnds: typeof data.planEnds === "number" ? data.planEnds : undefined,
+    paymentStatus: typeof data.paymentStatus === "string" ? data.paymentStatus : undefined,
+    pendingPlan: typeof data.pendingPlan === "string" ? data.pendingPlan : undefined,
+    billingPeriod: data.billingPeriod === "yearly" ? "yearly" : data.billingPeriod === "monthly" ? "monthly" : undefined,
+    paymentRef: typeof data.paymentRef === "string" ? data.paymentRef : undefined,
     categories: Array.isArray(data.categories) ? data.categories : undefined,
     areaLat: typeof data.areaLat === "number" ? data.areaLat : undefined,
     areaLng: typeof data.areaLng === "number" ? data.areaLng : undefined,
@@ -249,6 +259,11 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
       plan: PLAN.optional(),
       promoCode: z.string().trim().max(40).optional(),
       categories: z.array(z.string().trim().max(40)).max(8).optional(),
+      shopName: z.string().trim().min(2).max(80).optional(),
+      billingPeriod: z.enum(["monthly", "yearly"]).optional(),
+      paymentStatus: z.enum(["pending", "active"]).optional(),
+      paymentMethod: z.enum(["free", "cliq", "card"]).optional(),
+      paymentRef: z.string().trim().max(80).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -264,6 +279,12 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
       plan: data.plan,
       promoCode: data.promoCode,
       categories: data.categories ?? profile.categories,
+      displayName: data.shopName || profile.displayName,
+      billingPeriod: data.billingPeriod,
+      paymentStatus: data.paymentStatus,
+      paymentMethod: data.paymentMethod,
+      paymentRef: data.paymentRef,
+      pendingPlan: data.paymentStatus === "pending" ? data.plan : undefined,
     };
     await sql`update souq_pending set profile = ${JSON.stringify(next)}::jsonb where phone = ${data.phone}`;
     return { ok: true as const };
@@ -354,8 +375,18 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     let role: "buyer" | "seller" = profile.intent === "seller" ? "seller" : "buyer";
     let plan: string | null = null;
     let slug: string | null = existing?.shop_slug ?? null;
+    let planEnds: number | undefined;
+    let paymentStatus: string | undefined;
+    let pendingPlan: string | undefined;
+    let billingPeriod: string | undefined;
     if (role === "seller") {
+      const chosen = profile.pendingPlan || profile.plan;
+      const paid = chosen === "basic" || chosen === "grow" || chosen === "premium";
+      const now = Date.now();
       plan = "free";
+      planEnds = now + 90 * 86400000;
+      paymentStatus = "active";
+      billingPeriod = profile.billingPeriod === "yearly" ? "yearly" : "monthly";
       if (profile.promoCode) {
         const used = await sql<{ code: string }>`select code from souq_promo_uses where code = ${profile.promoCode}`;
         const promo = checkPromo(profile.promoCode, used.map((row) => ({
@@ -368,14 +399,17 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         })));
         if (promo.ok) {
           plan = promo.promo.plan;
+          planEnds = now + promo.promo.months * 30 * 86400000;
           await sql`
             insert into souq_promo_uses (code, phone, plan, months)
             values (${promo.promo.code}, ${data.phone}, ${promo.promo.plan}, ${promo.promo.months})
             on conflict (code, phone) do nothing
           `;
         }
-      } else if (profile.plan) {
-        plan = profile.plan === "free" ? "free" : "free";
+      } else if (paid && profile.paymentStatus === "pending") {
+        pendingPlan = chosen;
+        paymentStatus = "pending";
+        planEnds = undefined;
       }
       slug = slug ?? shopSlugFor(data.phone);
     }
@@ -389,6 +423,12 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       areaLat: profile.areaLat,
       areaLng: profile.areaLng,
       referral: profile.referral,
+      planEnds,
+      paymentStatus,
+      pendingPlan,
+      billingPeriod,
+      paymentRef: profile.paymentRef,
+      paymentMethod: profile.paymentMethod,
     };
     if (!existing) {
       await sql`
@@ -656,6 +696,59 @@ export const saveSouqReview = createServerFn({ method: "POST" })
       on conflict (shop_slug) do update set review_count = souq_views.review_count + 1
     `;
     return { ok: true as const, id };
+  });
+
+export const submitSouqPayment = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      plan: PLAN,
+      billingPeriod: z.enum(["monthly", "yearly"]),
+      paymentMethod: z.enum(["cliq", "card"]),
+      paymentRef: z.string().trim().min(2).max(80),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account || account.role !== "seller") return { ok: false as const, error: "auth" as const };
+    const next = {
+      ...(account.data ?? {}),
+      pendingPlan: data.plan,
+      paymentStatus: "pending",
+      paymentMethod: data.paymentMethod,
+      paymentRef: data.paymentRef,
+      billingPeriod: data.billingPeriod,
+    };
+    await sql`update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${phone}`;
+    return { ok: true as const };
+  });
+
+export const confirmSouqPayment = createServerFn({ method: "POST" })
+  .validator(z.object({ phone: z.string().trim().min(8).max(20) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const admin = await sessionPhone(sql);
+    const admins = (process.env.SOUQ_ADMIN_PHONES ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!admin || !admins.includes(admin)) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, data.phone);
+    if (!account) return { ok: false as const, error: "missing" as const };
+    const blob = account.data ?? {};
+    const plan = typeof blob.pendingPlan === "string" ? blob.pendingPlan : account.plan || "free";
+    const days = blob.billingPeriod === "yearly" ? 365 : 30;
+    const oldEnd = typeof blob.planEnds === "number" ? blob.planEnds : 0;
+    const now = Date.now();
+    const grace = 5 * 86400000;
+    const base = oldEnd > 0 && oldEnd + grace >= now ? oldEnd : now;
+    const planEnds = base + days * 86400000;
+    const { pendingPlan: _pending, ...rest } = blob;
+    const next = { ...rest, planEnds, paymentStatus: "active", sellerPlan: plan };
+    await sql`update souq_accounts set plan = ${plan}, data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${data.phone}`;
+    if (account.shop_slug) {
+      await sql`update souq_shops set plan = ${plan}, updated_at = now() where slug = ${account.shop_slug}`;
+    }
+    return { ok: true as const, plan, planEnds };
   });
 
 export const recordShopView = createServerFn({ method: "POST" })

@@ -130,7 +130,7 @@ export const PLANS: Record<
     name: "Free",
     nameAr: "مجاني",
     price: "0 JOD",
-    priceNote: "3 months once per phone",
+    priceNote: "Free for 3 months",
     badge: "none",
     stampLabel: "",
     listings: 5,

@@ -12,7 +12,7 @@ function WelcomePage() {
   const user = useSession((s) => s.user);
   const ar = lang === "ar";
   const seller = user?.role === "seller";
-  const plan = seller && user.sellerPlan ? PLANS[user.sellerPlan] : null;
+  const plan = seller && user.sellerPlan ? PLANS[user.sellerPlan as keyof typeof PLANS] : null;
 
   if (!user) {
     return (
@@ -26,11 +26,13 @@ function WelcomePage() {
     );
   }
 
+  const name = user.displayName || user.username;
+
   return (
     <Shell>
       <main className="mx-auto w-full max-w-lg px-4 py-14">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-mute">{ar ? "تم إنشاء الحساب" : "Account created"}</p>
-        <h1 className="mt-2 font-display text-4xl text-ink">{ar ? "أهلاً بك من جديد" : "Hala Beak"}</h1>
+        <h1 className="mt-2 font-display text-4xl text-ink">{name}</h1>
         <p className="mt-3 font-display text-2xl text-ink">{seller ? (ar ? "دكانك جاهز." : "Your stall is ready.") : ar ? "أهلاً بك في سوق بطوطة." : "Welcome to Souq Battuta."}</p>
         <p className="mt-4 text-sm leading-relaxed text-mute">
           {seller
@@ -41,6 +43,11 @@ function WelcomePage() {
               ? "اكتشف الدكاكين على كيفك. أنت تختار ما يظهر لك."
               : "Discover the stalls on your terms. You decide what shows up for you."}
         </p>
+        {user.pendingPlan && (
+          <p className="mt-4 rounded-lg border border-line bg-cream px-4 py-3 text-sm text-ink">
+            {ar ? `دفع ${PLANS[user.pendingPlan as keyof typeof PLANS]?.nameAr ?? user.pendingPlan} بانتظار التأكيد.` : `${PLANS[user.pendingPlan as keyof typeof PLANS]?.name ?? user.pendingPlan} is pending payment. We'll open it after we confirm the transfer.`}
+          </p>
+        )}
         {plan && (
           <p className="mt-4 rounded-lg border border-line bg-cream px-4 py-3 text-sm text-ink">
             <b>{ar ? plan.nameAr : plan.name}</b>

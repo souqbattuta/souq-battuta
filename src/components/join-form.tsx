@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CATEGORIES, type CategoryId } from "@/lib/data";
 import { isValidArabPhone, isValidSellerUsername, isValidUsername, normalizePhone, usernameTaken, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
 import { stageSouqSignup } from "@/lib/souq-sync";
-import { saveSellerDraft } from "@/lib/seller-draft";
+import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { LocationPicker } from "@/components/location-picker";
 import { OptImg } from "@/components/opt-img";
 
@@ -21,6 +21,22 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<CategoryId[]>([]);
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [draft, setDraft] = useState<SellerDraft | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (intent !== "seller") {
+      setReady(true);
+      return;
+    }
+    const saved = readSellerDraft();
+    if (saved) {
+      setDraft(saved);
+      setCategories(saved.categories);
+      if (typeof saved.areaLat === "number" && typeof saved.areaLng === "number") setPin({ lat: saved.areaLat, lng: saved.areaLng });
+    }
+    setReady(true);
+  }, [intent]);
 
   function toggle(id: CategoryId) {
     setCategories((current) => {
@@ -41,8 +57,10 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     const city = String(fd.get("city") ?? "");
     const address = String(fd.get("address") ?? "");
     const displayName = String(fd.get("displayName") ?? "");
+    const shopName = String(fd.get("shopName") ?? "").trim();
     const referral = String(fd.get("referral") ?? "");
     if (intent === "seller") {
+      if (shopName.length < 2) return setError(ar ? "اكتب اسم الدكان." : "Enter the shop name.");
       if (!isValidSellerUsername(username)) return setError(t.sellerUserRule);
     } else if (displayName.trim().length < 2) return setError(t.displayName);
     else if (!isValidUsername(username)) return setError(t.shortUser);
@@ -62,6 +80,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
           password,
           profile: {
             username,
+            displayName: shopName,
             city,
             address,
             intent: "seller",
@@ -79,11 +98,16 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
       saveSellerDraft({
         phone: phoneNorm,
         username,
+        shopName,
         address,
         city,
         areaLat: pin?.lat,
         areaLng: pin?.lng,
         categories,
+        plan: draft?.plan,
+        billingPeriod: draft?.billingPeriod,
+        promoCode: draft?.promoCode,
+        promoMonths: draft?.promoMonths,
       });
       void navigate({ to: "/join/seller/plan" });
       return;
@@ -97,17 +121,20 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     void navigate({ to: "/otp" });
   }
 
+  if (!ready) return <p className="text-sm text-mute">{ar ? "…" : "…"}</p>;
+
   return (
-    <form className="space-y-3" onSubmit={onSubmit}>
+    <form key={draft?.phone ?? intent} className="space-y-3" onSubmit={onSubmit}>
       {intent === "buyer" && <Field name="displayName" label={t.displayName} required />}
-      <Field name="username" label={t.username} autoComplete="username" required />
-      <Field name="phone" label={t.phone} type="tel" autoComplete="tel" placeholder="+962 7X XXX XXXX" required />
+      {intent === "seller" && <Field name="shopName" label={ar ? "اسم الدكان" : "Shop name"} defaultValue={draft?.shopName} required />}
+      <Field name="username" label={t.username} autoComplete="username" defaultValue={draft?.username} required />
+      <Field name="phone" label={t.phone} type="tel" autoComplete="tel" placeholder="07XXXXXXXX or +9627XXXXXXXX" defaultValue={draft?.phone} required />
       <p className="text-xs text-mute">{t.invalidPhone}</p>
       <Field name="password" label={t.password} type="password" autoComplete="new-password" required />
       <Field name="repeat" label={t.repeat} type="password" autoComplete="new-password" required />
       <label className="block text-sm">
         <span className="mb-1 block font-semibold">{t.city} *</span>
-        <select name="city" className="h-12 w-full rounded-md border border-line bg-white px-3" required defaultValue="">
+        <select name="city" className="h-12 w-full rounded-md border border-line bg-white px-3" required defaultValue={draft?.city || ""}>
           <option value="" disabled>
             {t.city}
           </option>
@@ -118,7 +145,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
           ))}
         </select>
       </label>
-      <Field name="address" label={t.address} autoComplete="street-address" />
+      <Field name="address" label={t.address} autoComplete="street-address" defaultValue={draft?.address} />
       {intent === "buyer" && <Field name="referral" label={t.referral} placeholder="NAMOS" />}
       {intent === "seller" && (
         <>
@@ -179,6 +206,7 @@ function Field({
   type = "text",
   placeholder,
   required,
+  defaultValue,
   autoComplete,
 }: {
   name: string;
@@ -186,6 +214,7 @@ function Field({
   type?: string;
   placeholder?: string;
   required?: boolean;
+  defaultValue?: string;
   autoComplete?: string;
 }) {
   return (
@@ -199,6 +228,7 @@ function Field({
         type={type}
         placeholder={placeholder}
         required={required}
+        defaultValue={defaultValue}
         autoComplete={autoComplete}
         className="h-12 w-full rounded-md border border-line bg-white px-3 outline-none focus:border-ink"
       />

@@ -1,11 +1,12 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
-import { clearSellerDraft, readSellerDraft } from "@/lib/seller-draft";
+import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { checkPromo, type PromoCode } from "@/lib/promo-codes";
 import { Shell } from "@/components/site-header";
 import { PlanStamp } from "@/components/plan-stamp";
+import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { cn } from "@/lib/cn";
 
 export const Route = createFileRoute("/join/seller_/plan")({
@@ -14,8 +15,8 @@ export const Route = createFileRoute("/join/seller_/plan")({
 
 const PAID: PlanId[] = ["basic", "grow", "premium"];
 const RANK: Record<PlanId, number> = { free: 0, basic: 1, grow: 2, premium: 3 };
-const FEATURES: { en: string; ar: string; min: PlanId }[] = [
-  { en: "The Treasury", ar: "الخزينة", min: "free" },
+const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo" | "hello" }[] = [
+  { en: "The Treasury", ar: "الخزينة", min: "free", hint: "treasury" },
   { en: "Order / Inquire Now", ar: "اطلب / استفسر الآن", min: "free" },
   { en: "WhatsApp stays yours", ar: "واتساب يبقى إلك", min: "free" },
   { en: "5 items", ar: "٥ أصناف", min: "free" },
@@ -27,21 +28,34 @@ const FEATURES: { en: string; ar: string; min: PlanId }[] = [
   { en: "Your profile photo", ar: "صورة ملفك", min: "basic" },
   { en: "Open / Closed", ar: "مفتوح / مغلق", min: "basic" },
   { en: "View count", ar: "عدد المشاهدات", min: "basic" },
-  { en: "5 algorithm terms", ar: "٥ مصطلحات للخوارزمية", min: "basic" },
-  { en: "15 algorithm terms", ar: "١٥ مصطلحاً للخوارزمية", min: "grow" },
-  { en: "25 algorithm terms", ar: "٢٥ مصطلحاً للخوارزمية", min: "premium" },
+  { en: "5 algorithm terms", ar: "٥ مصطلحات للخوارزمية", min: "basic", hint: "algo" },
+  { en: "15 algorithm terms", ar: "١٥ مصطلحاً للخوارزمية", min: "grow", hint: "algo" },
+  { en: "25 algorithm terms", ar: "٢٥ مصطلحاً للخوارزمية", min: "premium", hint: "algo" },
   { en: "Reviews", ar: "تقييمات", min: "grow" },
   { en: "Sort the shop your way", ar: "رتّب الدكان على كيفك", min: "grow" },
   { en: "Link your social media", ar: "اربط حساباتك", min: "basic" },
   { en: "Analytics", ar: "تحليلات", min: "grow" },
-  { en: "2 Hello, World! posts a day", ar: "منشوران في اليوم على Hello, World!", min: "basic" },
-  { en: "3 Hello, World! posts a day", ar: "٣ منشورات في اليوم على Hello, World!", min: "grow" },
-  { en: "5 Hello, World! posts a day", ar: "٥ منشورات في اليوم على Hello, World!", min: "premium" },
+  { en: "2 Hello, World! posts a day", ar: "منشوران في اليوم على Hello, World!", min: "basic", hint: "hello" },
+  { en: "3 Hello, World! posts a day", ar: "٣ منشورات في اليوم على Hello, World!", min: "grow", hint: "hello" },
+  { en: "5 Hello, World! posts a day", ar: "٥ منشورات في اليوم على Hello, World!", min: "premium", hint: "hello" },
   { en: "Messages from sellers", ar: "رسائل البائعين", min: "grow" },
   { en: "Search in the stall", ar: "بحث في الدكان", min: "premium" },
   { en: "Sizes and colors", ar: "مقاسات وألوان", min: "premium" },
   { en: "Followers", ar: "متابعون", min: "grow" },
 ];
+
+const VISIBILITY: Record<PlanId, [string, string]> = {
+  free: ["Standard visibility", "ظهور عادي"],
+  basic: ["Boosted", "ظهور أقوى"],
+  grow: ["Priority", "أولوية"],
+  premium: ["Top priority", "الأولوية الأولى"],
+};
+
+const HINTS: Record<"treasury" | "algo" | "hello", [string, string]> = {
+  treasury: ["Your private records: orders, notes, and what you save. Only you see them.", "سجلاتك الخاصة: الطلبات والملاحظات وما تحفظه. لا يراها غيرك."],
+  algo: ["Words you add so a search can bring your stall forward.", "كلمات تضيفها حتى يظهر دكانك عندما يبحث أحد."],
+  hello: ["A short public note on the souq board. It stays up for a day.", "ملاحظة قصيرة على لوحة السوق. تبقى يوماً واحداً."],
+};
 
 function SellerPlanPage() {
   const lang = useSession((s) => s.lang);
@@ -50,7 +64,7 @@ function SellerPlanPage() {
   const promos = useSession((s) => s.promoCodes);
   const redemptions = useSession((s) => s.promoRedemptions);
   const ar = lang === "ar";
-  const draft = readSellerDraft();
+  const [draft, setDraft] = useState<SellerDraft | null | undefined>(undefined);
   const [plan, setPlan] = useState<PlanId>("free");
   const [payOpen, setPayOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -58,13 +72,29 @@ function SellerPlanPage() {
   const [promo, setPromo] = useState<PromoCode | null>(null);
   const [promoError, setPromoError] = useState("");
 
-  async function finish(chosen: PlanId, applied?: PromoCode | null) {
+  useEffect(() => {
+    const saved = readSellerDraft();
+    setDraft(saved);
+    if (saved?.plan) setPlan(saved.plan);
+  }, []);
+
+  function remember(next: Partial<SellerDraft>) {
+    if (!draft) return;
+    const saved = { ...draft, ...next };
+    setDraft(saved);
+    saveSellerDraft(saved);
+  }
+
+  async function finish(chosen: PlanId, payment?: PaymentChoice | null, applied?: PromoCode | null) {
     if (!draft) return;
     const gift = applied === undefined ? promo : applied;
+    const pendingPay = Boolean(payment);
     setLoading(true);
     const joined = await startJoin({
       phone: draft.phone,
       username: draft.username,
+      displayName: draft.shopName,
+      shopName: draft.shopName,
       address: draft.address,
       city: draft.city,
       areaLat: draft.areaLat,
@@ -74,13 +104,17 @@ function SellerPlanPage() {
       categories: draft.categories,
       promoCode: gift?.code,
       promoMonths: gift?.months,
+      billingPeriod: payment?.period ?? "monthly",
+      paymentStatus: pendingPay ? "pending" : "active",
+      paymentMethod: pendingPay ? payment?.method : "free",
+      paymentRef: payment?.ref,
     });
     setLoading(false);
     if (!joined.ok) {
-      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : ar ? "تعذر إرسال الرمز." : "The code could not be sent.");
+      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
       return;
     }
-    clearSellerDraft();
+    remember({ plan: gift?.plan ?? chosen, billingPeriod: payment?.period, paymentMethod: payment?.method ?? "free", paymentRef: payment?.ref, promoCode: gift?.code, promoMonths: gift?.months });
     void navigate({ to: "/otp" });
   }
 
@@ -105,14 +139,24 @@ function SellerPlanPage() {
   function continuePlan() {
     if (!draft) return;
     if (promo && promo.plan === plan) {
-      finish(plan, promo);
+      finish(plan, null, promo);
       return;
     }
     if (PAID.includes(plan)) {
       setPayOpen(true);
       return;
     }
-    finish(plan, null);
+    finish(plan, null, null);
+  }
+
+  if (draft === undefined) {
+    return (
+      <Shell>
+        <main className="mx-auto w-full max-w-md px-4 py-10">
+          <p className="text-sm text-mute">…</p>
+        </main>
+      </Shell>
+    );
   }
 
   if (!draft) {
@@ -138,8 +182,8 @@ function SellerPlanPage() {
         <h1 className="mt-1 font-display text-3xl text-ink">{ar ? "اختر الخطة" : "Choose a plan"}</h1>
         <p className="mt-2 max-w-xl text-sm text-mute">
           {ar
-            ? "المجاني ينشئ الحساب مباشرة. الخطط المدفوعة تفتح الدفع أولاً. رقم البطاقة لا يُحفظ."
-            : "Free creates the account now. A paid plan opens payment first. The card number is not saved."}
+            ? "المجاني لثلاثة أشهر ينشئ الحساب مباشرة. الخطط المدفوعة دفعة واحدة بلا تجديد تلقائي، وتبقى بانتظار التأكيد."
+            : "Free for 3 months creates the account now. A paid plan is a one-time payment with no auto-renew, and it stays pending until we confirm it."}
         </p>
         <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {(Object.keys(PLANS) as PlanId[]).map((id) => {
@@ -150,7 +194,10 @@ function SellerPlanPage() {
                 key={id}
                 type="button"
                 aria-pressed={on}
-                onClick={() => setPlan(id)}
+                onClick={() => {
+                  setPlan(id);
+                  remember({ plan: id });
+                }}
                 className={cn(
                   "flex flex-col rounded-xl border bg-cream p-4 text-start",
                   on ? "border-ink ring-2 ring-ink" : "border-line",
@@ -166,13 +213,15 @@ function SellerPlanPage() {
                   )}
                 </span>
                 <span className="mt-1 text-lg font-semibold">{item.price}</span>
+                {id === "free" && <span className="text-xs font-semibold text-ink">{ar ? "مجاناً لثلاثة أشهر" : "Free for 3 months"}</span>}
+                <span className="text-xs text-mute">{ar ? VISIBILITY[id][1] : VISIBILITY[id][0]}</span>
                 <ul className="mt-3 space-y-1">
                   {FEATURES.map((feature) => {
                     const included = RANK[id] >= RANK[feature.min];
                     return (
                       <li key={feature.en} className={included ? "tier-feature" : "tier-feature is-out"}>
                         <span className="tick" aria-hidden="true">{included ? "✓" : ""}</span>
-                        <span>{ar ? feature.ar : feature.en}</span>
+                        <span title={feature.hint ? (ar ? HINTS[feature.hint][1] : HINTS[feature.hint][0]) : undefined}>{ar ? feature.ar : feature.en}</span>
                       </li>
                     );
                   })}
@@ -221,110 +270,20 @@ function SellerPlanPage() {
       {payOpen && (
         <PaymentDialog
           ar={ar}
+          plan={plan}
           amount={PLANS[plan].price}
           onClose={() => setPayOpen(false)}
-          onPaid={() => finish(plan, null)}
+          onFree={() => {
+            setPayOpen(false);
+            setPlan("free");
+            finish("free", null, null);
+          }}
+          onPaid={(choice) => {
+            setPayOpen(false);
+            finish(choice.plan, choice, null);
+          }}
         />
       )}
     </Shell>
-  );
-}
-
-function PaymentDialog({
-  ar,
-  amount,
-  onClose,
-  onPaid,
-}: {
-  ar: boolean;
-  amount: string;
-  onClose: () => void;
-  onPaid: () => void;
-}) {
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-    const fd = new FormData(e.currentTarget);
-    const name = String(fd.get("name") ?? "").trim();
-    const number = String(fd.get("number") ?? "").replace(/\s/g, "");
-    const expiry = String(fd.get("expiry") ?? "").trim();
-    const cvc = String(fd.get("cvc") ?? "").trim();
-    if (name.length < 2) return setError(ar ? "اكتب الاسم على البطاقة." : "Enter the name on the card.");
-    if (!/^\d{16}$/.test(number)) return setError(ar ? "رقم البطاقة ١٦ خانة." : "Card number must be 16 digits.");
-    if (!/^\d{2}\/\d{2}$/.test(expiry)) return setError(ar ? "التاريخ بهذه الصورة MM/YY." : "Use expiry as MM/YY.");
-    const [month, year] = expiry.split("/").map(Number);
-    const end = new Date(2000 + year, month, 0);
-    if (month < 1 || month > 12 || end < new Date()) return setError(ar ? "البطاقة منتهية." : "This card is expired.");
-    if (!/^\d{3,4}$/.test(cvc)) return setError(ar ? "رمز الأمان ٣ أو ٤ أرقام." : "Security code is 3 or 4 digits.");
-    setLoading(true);
-    onPaid();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#1c305c]/45 px-4" role="presentation" onClick={onClose}>
-      <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="pay-title"
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={onSubmit}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 id="pay-title" className="font-display text-2xl text-ink">
-              {ar ? "الدفع" : "Payment"}
-            </h2>
-            <p className="text-sm text-mute">{amount}</p>
-          </div>
-          <button
-            type="button"
-            aria-label={ar ? "إغلاق" : "Close"}
-            onClick={onClose}
-            className="grid size-9 place-items-center rounded-full text-lg hover:bg-cream focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
-          >
-            ×
-          </button>
-        </div>
-        <p className="mt-3 text-xs leading-relaxed text-mute">
-          {ar
-            ? "لا نحفظ رقم البطاقة ولا رمز الأمان. عند الإطلاق سيُفتح الدفع عبر بوابة خارجية، بحيث لا تصل بيانات البطاقة إلى سوق بطوطة."
-            : "We do not save the card number or security code. At launch this step will open a hosted checkout, so card details never reach Souq Battuta."}
-        </p>
-        <label className="mt-4 block text-sm font-semibold">
-          {ar ? "الاسم على البطاقة" : "Name on card"}
-          <input name="name" autoComplete="cc-name" required className="mt-1 h-11 w-full rounded-md border border-line px-3 font-normal outline-none focus:border-ink" />
-        </label>
-        <label className="mt-3 block text-sm font-semibold">
-          {ar ? "رقم البطاقة" : "Card number"}
-          <input name="number" inputMode="numeric" autoComplete="cc-number" placeholder="•••• •••• •••• ••••" required className="mt-1 h-11 w-full rounded-md border border-line px-3 font-normal outline-none focus:border-ink" />
-        </label>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <label className="block text-sm font-semibold">
-            {ar ? "الانتهاء" : "Expiry"}
-            <input name="expiry" autoComplete="cc-exp" placeholder="MM/YY" required className="mt-1 h-11 w-full rounded-md border border-line px-3 font-normal outline-none focus:border-ink" />
-          </label>
-          <label className="block text-sm font-semibold">
-            {ar ? "رمز الأمان" : "Security code"}
-            <input name="cvc" inputMode="numeric" autoComplete="cc-csc" placeholder="•••" required className="mt-1 h-11 w-full rounded-md border border-line px-3 font-normal outline-none focus:border-ink" />
-          </label>
-        </div>
-        {error && (
-          <p className="mt-3 text-sm text-red" role="alert">
-            {error}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-4 h-12 w-full rounded-md bg-ink font-semibold text-cream hover:bg-[#152648] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-60"
-        >
-          {loading ? "…" : ar ? "ادفع وأنشئ الحساب" : "Pay and create account"}
-        </button>
-      </form>
-    </div>
   );
 }

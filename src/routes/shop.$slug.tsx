@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { shopBySlug, type Shop } from "@/lib/data";
-import { publicProduct, publicSocials, sellerByPublicSlug, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
+import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
 import { Shell } from "@/components/site-header";
 import { ShopView } from "@/components/shop-page";
 
@@ -54,6 +54,7 @@ export function ShopPage({ slug }: { slug: string }) {
   const shop = useMemo(() => {
     const base = shopBySlug(slug);
     const owner = sellerByPublicSlug(slug, accounts);
+    if (owner && billingPhase(owner) === "paused" && !base) return null;
     if (!base) return ownedShop(slug, accounts, listings ?? [], reviewReplies ?? {});
     const premium = owner?.sellerPlan === "premium";
     const extra = (listings ?? [])

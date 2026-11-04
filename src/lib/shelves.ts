@@ -148,7 +148,8 @@ export function rankForYou(
       if (hit) value += weight + Math.min(hit, 12);
     });
     if (input.referred && shop.slug === input.referred) value += 1;
-    return value;
+    const boost = shop.plan === "premium" ? 30 : shop.plan === "grow" ? 20 : shop.plan === "basic" ? 10 : 0;
+    return value + boost;
   };
   return [...shops]
     .filter((shop) => !shopMuted(shop, input.mutedWords, input.mutedStalls))

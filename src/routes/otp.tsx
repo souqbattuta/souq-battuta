@@ -12,11 +12,16 @@ function OtpPage() {
   const t = copy[lang];
   const completeJoin = useSession((s) => s.completeJoin);
   const pending = useSession((s) => s.pending);
+  const restorePending = useSession((s) => s.restorePending);
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [wait, setWait] = useState(60);
   const ar = lang === "ar";
+
+  useEffect(() => {
+    if (!pending?.phone) restorePending();
+  }, [pending, restorePending]);
 
   useEffect(() => {
     if (wait <= 0) return;
@@ -43,7 +48,7 @@ function OtpPage() {
     const res = await sendSouqOtp({ data: { phone: pending.phone } });
     if (!res.ok) {
       if (res.retryAfter) setWait(res.retryAfter);
-      setError(res.error === "unconfigured" ? t.otpUnconfigured : res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
+      setError(res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
       return;
     }
     setWait(res.retryAfter || 60);
@@ -57,7 +62,7 @@ function OtpPage() {
         </button>
         <h1 className="font-display text-3xl">{t.otpTitle}</h1>
         <p className="mt-2 text-sm text-mute">{t.otpBody}</p>
-        {pending && <p className="mt-1 text-xs text-mute">{pending.phone}</p>}
+        {pending?.phone ? <p className="mt-1 text-xs text-mute">{pending.phone}</p> : <p className="mt-2 text-sm text-mute">{ar ? "ابدأ من الخطوة الأولى إن لم يصل الرمز." : "Start from step one if this number is not yours."}</p>}
         <form className="mt-6 space-y-3" onSubmit={onSubmit}>
           <input
             name="otp"

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, type ItemChoice, type PlanId } from "@/lib/data";
-import { slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
+import { billingPhase, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
@@ -10,6 +10,8 @@ import { PlanStamp } from "@/components/plan-stamp";
 import { PhotoStudio, SquareCrop } from "@/components/photo-frame";
 import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
+import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
+import { submitSouqPayment } from "@/lib/souq-sync";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
 type DraftOption = { en: string; ar: string; extra: string; off: boolean; reason: "" | "unavailable" | "stock" | "sold"; back: string };
@@ -48,7 +50,6 @@ function SellerDesk() {
   const toggleListing = useSession((s) => s.toggleListing);
   const hideListing = useSession((s) => s.hideListing);
   const showListing = useSession((s) => s.showListing);
-  const becomeSeller = useSession((s) => s.becomeSeller);
   const addPromotion = useSession((s) => s.addPromotion);
   const setStall = useSession((s) => s.setStall);
   const setSellerContact = useSession((s) => s.setSellerContact);
@@ -67,6 +68,8 @@ function SellerDesk() {
   const deleteSellerLine = useSession((s) => s.deleteSellerLine);
   const ensureHalaDemo = useSession((s) => s.ensureHalaDemo);
   const ensureSouqInbox = useSession((s) => s.ensureSouqInbox);
+  const notePayment = useSession((s) => s.notePayment);
+  const [payOpen, setPayOpen] = useState(false);
   const [editPane, setEditPane] = useState<"about" | "photo" | "hours" | "products" | "algorithm" | "socials">(item ? "products" : "about");
   const [editingId, setEditingId] = useState(item);
   const [mainPhoto, setMainPhoto] = useState<string | null>(null);
@@ -317,6 +320,7 @@ function SellerDesk() {
                 {" · "}
                 {membershipLine(user.planEnds ?? account?.planEnds, ar)}
               </p>
+              <BillingBanner ar={ar} planId={planId} phase={billingPhase(account ?? user)} ends={user.planEnds ?? account?.planEnds} pending={user.pendingPlan || account?.pendingPlan} />
               {(planId === "grow" || planId === "premium") && (
                 <p className="mt-1 text-sm text-ink">
                   {ar ? "المتابعون" : "Followers"}
@@ -331,8 +335,8 @@ function SellerDesk() {
                   {ar ? "رقّي الخطة" : "Upgrade plan"}
                 </Link>
               )}
-              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => becomeSeller(planId, profileSlug)}>
-                {ar ? "جدّد مبكراً" : "Renew early"}
+              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => (planId === "free" ? void navigate({ to: "/sell" }) : setPayOpen(true))}>
+                {ar ? "جدّد الآن" : "Renew now"}
               </button>
               <Link to="/shop/$slug" params={{ slug: profileSlug }} className="inline-flex h-11 items-center rounded-md border border-line px-4 text-sm font-semibold">
                 {ar ? "شوف الملف" : "View profile"}
@@ -341,6 +345,21 @@ function SellerDesk() {
           </div>
           <UpgradeCode ar={ar} />
         </section>
+        {payOpen && planId !== "free" && (
+          <PaymentDialog
+            ar={ar}
+            plan={planId}
+            amount={PLANS[planId].price}
+            onClose={() => setPayOpen(false)}
+            onFree={() => setPayOpen(false)}
+            onPaid={(choice: PaymentChoice) => {
+              setPayOpen(false);
+              void submitSouqPayment({ data: { plan: choice.plan, billingPeriod: choice.period, paymentMethod: choice.method, paymentRef: choice.ref } }).then((res) => {
+                if (res.ok) notePayment({ pendingPlan: choice.plan, paymentStatus: "pending", paymentMethod: choice.method, paymentRef: choice.ref, billingPeriod: choice.period });
+              });
+            }}
+          />
+        )}
 
         {tab !== "edit" && (
           <>
@@ -1081,6 +1100,26 @@ function UpgradeCode({ ar }: { ar: boolean }) {
       {note && <p className={`mt-2 text-sm ${bad ? "text-red" : "text-ink"}`}>{note}</p>}
     </form>
   );
+}
+
+function BillingBanner({ ar, planId, phase, ends, pending }: { ar: boolean; planId: PlanId; phase: string; ends?: number; pending?: string }) {
+  const days = ends ? Math.ceil((ends - Date.now()) / 86400000) : null;
+  let text = "";
+  if (phase === "pending" || pending) {
+    text = ar ? "الدفع بانتظار التأكيد. الخطة المدفوعة تفتح بعد ما نأكد التحويل." : "Payment is pending. The paid plan opens after we confirm the transfer.";
+  } else if (phase === "paused") {
+    text = ar ? "الدكان متوقف ومخفي. بياناتك محفوظة. جدّد ليظهر من جديد." : "The stall is paused and hidden. Your data is kept. Renew to show it again.";
+  } else if (phase === "grace") {
+    text = ar ? "أنت في فترة سماح من ٣ إلى ٥ أيام. جدّد قبل ما يتوقف الدكان." : "You are in the 5-day grace period. Renew before the stall is paused.";
+  } else if (planId === "free" && days != null && days <= 14) {
+    text = ar ? `المجاني ينتهي خلال ${days} يوماً. بعدها اختر خطة مدفوعة.` : `Free ends in ${days} day${days === 1 ? "" : "s"}. Then choose a paid plan.`;
+  } else if (planId !== "free" && days != null && days <= 7) {
+    text = days <= 0
+      ? ar ? "ينتهي اليوم. جدّد الآن." : "It ends today. Renew now."
+      : ar ? `ينتهي خلال ${days} أيام. جدّد الآن.` : `It ends in ${days} day${days === 1 ? "" : "s"}. Renew now.`;
+  }
+  if (!text) return null;
+  return <p className="mt-2 rounded-md bg-sand px-3 py-2 text-sm text-ink">{text}</p>;
 }
 
 function membershipDays(planEnds?: number) {
