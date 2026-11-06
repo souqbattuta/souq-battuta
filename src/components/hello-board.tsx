@@ -7,6 +7,7 @@ import {
   billedLength,
   boardHandles,
   boardPosts,
+  helloFailCopy,
   homeHello,
   postsToday,
   rankHello,
@@ -60,7 +61,7 @@ function HistoryRow({ post, ar, now, today = false, onDelete, onEdit }: { post: 
       <small>
         {post.views} {ar ? "مشاهدة" : "views"} · {helloStamp(post.at)} · {hoursLeft(post.at, now, today, ar)}
       </small>
-      {onDelete && now - post.at < HELLO_EDIT && onEdit && (
+      {onDelete && (post.editUntil ?? post.at + HELLO_EDIT) > now && onEdit && (
         <button type="button" className="hw-delete" onClick={() => onEdit(post)}>
           {ar ? "تعديل" : "Edit"}
         </button>
@@ -523,7 +524,7 @@ export function HelloStrip({ shops }: { shops: Shop[] }) {
     void loadHello();
   }, [loadHello]);
   const live = homeHello(
-    postsToday(feed.length ? feed : boardPosts(Object.values(accounts))),
+    postsToday(feed.length ? feed : process.env.NODE_ENV === "production" ? [] : boardPosts(Object.values(accounts))),
     follows,
     words,
   ).filter((post) => allowed.has(post.shopSlug) || feed.some((item: HelloPost) => item.id === post.id));
@@ -650,6 +651,11 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
   const loadHello = useSession((s) => s.loadHello);
   const feed = useSession((s) => s.helloFeed) ?? [];
   const shops = useMemo(() => directoryShops(accounts), [accounts]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const today = useMemo(() => {
     const mine = user ? accounts[user.phone]?.helloPosts ?? [] : [];
     const byId = new Map<string, HelloPost>();
@@ -657,9 +663,10 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
       if (!post?.id || post.status === "removed" || post.status === "hidden") continue;
       byId.set(post.id, post);
     }
-    const live = postsToday([...byId.values()]);
-    return live.length ? live : boardPosts([]);
-  }, [accounts, feed, user]);
+    const live = postsToday([...byId.values()], now);
+    if (live.length || process.env.NODE_ENV === "production") return live;
+    return boardPosts([]);
+  }, [accounts, feed, user, now]);
   const orderKey = `${tab}\n${today.map((post) => post.id).join("\n")}\n${words.join("\n")}`;
   const followsNow = useRef(follows);
   followsNow.current = follows;
@@ -678,12 +685,9 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
   const [open, setOpen] = useState<number | null>(null);
   const [helloCursor, setHelloCursor] = useState(0);
   const [reported, setReported] = useState<string[]>([]);
-  const [now, setNow] = useState(() => Date.now());
   const ar = lang === "ar";
   useEffect(() => {
     void loadHello();
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
   }, [loadHello]);
   useEffect(() => {
     if (!postId) return;
@@ -886,13 +890,15 @@ export function HelloComposer() {
   useEffect(() => {
     pruneHello();
     void loadHelloQuota();
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      void loadHelloQuota();
+    }, 30_000);
     return () => window.clearInterval(timer);
   }, [pruneHello, loadHelloQuota]);
   const all = [...(user ? accounts[user.phone]?.helloPosts ?? [] : [])].sort((a, b) => b.at - a.at);
-  const windowStart = now - 24 * 60 * 60 * 1000;
-  const mine = all.filter((post) => post.at >= windowStart && post.status !== "removed");
-  const older = all.filter((post) => post.at < windowStart && post.at >= now - 30 * 864e5);
+  const mine = all.filter((post) => (post.expiresAt ?? post.at + 24 * 60 * 60 * 1000) > now && post.status !== "removed" && post.status !== "hidden");
+  const older = all.filter((post) => (post.expiresAt ?? post.at + 24 * 60 * 60 * 1000) <= now && post.at >= now - 30 * 864e5);
   const [text, setText] = useState("");
   const [lang, setLang] = useState<"en" | "ar">("en");
   const [image, setImage] = useState<string | null>(null);
@@ -998,7 +1004,7 @@ export function HelloComposer() {
                       ? await editHelloPost({ id: editing, text, image })
                       : await addHelloPost({ text, lang, image });
                     if (!res.ok) {
-                      setError(res.error === "limit" ? (ar ? "خلصت المشاركات لهذه الساعات." : "That is all your plan allows in these 24 hours.") : res.error === "locked" ? (ar ? "خلصت مدة التعديل." : "The 15-minute edit window has closed.") : res.error === "paused" ? (ar ? "انتهت التجربة المجانية. الدكان متوقف." : "Your free trial is done. Your shop is paused.") : (ar ? "اكتب سطر وضيف صورة." : "Add a line and a photo."));
+                      setError(helloFailCopy(String(res.error ?? "server"), ar));
                       setPreview(false);
                       return;
                     }

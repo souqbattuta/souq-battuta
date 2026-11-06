@@ -14,11 +14,23 @@ export function SouqSync() {
       try {
         const me = await getSouqMe();
         if (stopped || !me.ok || !me.account) return;
-        const state = useSession.getState() as { user?: { phone?: string } | null };
-        if (state.user?.phone && state.user.phone !== me.account.phone) return;
+        const account = me.account as {
+          phone?: string;
+          displayName?: string;
+          shopName?: string;
+          algoStamps?: Record<string, number>;
+          interestWords?: string[];
+          algoOrder?: string[];
+          mutedWords?: string[];
+          mutedStalls?: string[];
+        };
+        const state = useSession.getState() as { user?: { phone?: string; displayName?: string } | null };
+        if (state.user?.phone && account.phone && state.user.phone !== account.phone) return;
         useSession.setState({
-          user: { ...(state.user ?? {}), ...me.account },
+          user: { ...(state.user ?? {}), ...account, displayName: account.shopName || account.displayName || state.user?.displayName },
         });
+        const apply = (useSession.getState() as { applyRemoteAlgo?: (algo: unknown) => void }).applyRemoteAlgo;
+        if (apply && account.algoStamps) apply(account);
       } catch {
         /* the notebook is not ready yet */
       }

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
-import { Shell } from "@/components/site-header";
+import { AnimalRule } from "@/components/animal-rule";
 
 export const Route = createFileRoute("/privacy")({ component: PrivacyPage });
 
@@ -29,6 +29,7 @@ function PrivacyPage() {
       <main className="mx-auto max-w-2xl px-4 py-10">
         <Link to="/" className="text-sm">{ar ? "رجوع" : "Back"}</Link>
         <h1 className="mt-4 font-display text-4xl">{ar ? "الخصوصية" : "Privacy"}</h1>
+        <div className="mt-6"><AnimalRule ar={ar} /></div>
         <div className="mt-6 space-y-4">
           {sections.map(([title, body]) => (
             <section key={title} className="rounded-xl border border-line bg-cream p-4">

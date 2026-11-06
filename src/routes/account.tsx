@@ -920,6 +920,19 @@ function AlgorithmBoard() {
     followSimilar: t.algoFollowSimilar,
     fresh: t.algoNew,
   };
+  const hints: Record<AlgoLever, string> = {
+    words: ar ? "دكاكين تطابق الكلمات التي اخترتها." : "Shops that match the words you picked.",
+    ordered: ar ? "أماكن طلبت منها." : "Places you have ordered from.",
+    follow: ar ? "دكاكين تتابعها." : "Shops you follow.",
+    shared: ar ? "دكاكين شاركتها." : "Shops you shared.",
+    bookmarks: ar ? "دكاكين حفظتها." : "Shops you saved.",
+    liked: ar ? "دكاكين أعجبت بمنتجاتها." : "Shops whose products you liked.",
+    visited: ar ? "دكاكين فتحتها." : "Shops you opened.",
+    likeSimilar: ar ? "دكاكين تشبه ما أعجبك." : "Shops like the ones you liked.",
+    followSimilar: ar ? "دكاكين تشبه ما تتابعه." : "Shops like the ones you follow.",
+    fresh: ar ? "دكاكين جديدة تطابق اهتمامك." : "New shops that match an interest of yours.",
+  };
+  const [saved, setSaved] = useState(false);
   const standard = DEFAULT_ALGO_ORDER.join() === order.join();
 
   return (
@@ -930,12 +943,24 @@ function AlgorithmBoard() {
         <AlgoSort
           ids={order}
           label={t.dragRow}
-          onReorder={setAlgoOrder}
+          onReorder={async (next) => {
+            const ok = await setAlgoOrder(next);
+            if (!ok) return;
+            setSaved(true);
+            window.setTimeout(() => setSaved(false), 1400);
+          }}
           render={(id, index) => (
             <div>
               <p className="algo-name">
-                {index + 1}. {labels[id]}
+                <span
+                  className="algo-rank"
+                  style={{ background: index === 0 ? "#c45c26" : `rgb(${36 + index * 16}, ${36 + index * 16}, ${36 + index * 16})` }}
+                >
+                  {index + 1}
+                </span>
+                {labels[id]}
               </p>
+              <p className="algo-plain">{hints[id]}</p>
               {id === "words" && (
                 <>
                   <WordList kind="interest" words={interest} cap={WORD_CAP} />
@@ -952,6 +977,7 @@ function AlgorithmBoard() {
             </div>
           )}
         />
+        {saved && <p className="algo-toast" role="status">Saved ✓</p>}
         {!standard && (
           <button type="button" className="algo-reset" onClick={() => setAlgoOrder([...DEFAULT_ALGO_ORDER])}>
             {t.algoReset}
@@ -1026,6 +1052,8 @@ function AlgoSort({
     const move = (ev: PointerEvent) => {
       setDrag((current) => (current ? { ...current, x: ev.clientX, y: ev.clientY } : current));
       const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-algo-index]");
+      if (ev.clientY < 88) window.scrollBy(0, -18);
+      if (ev.clientY > window.innerHeight - 88) window.scrollBy(0, 18);
       if (!el) return;
       reorderTo(Number((el as HTMLElement).dataset.algoIndex));
     };

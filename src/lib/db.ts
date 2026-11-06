@@ -46,6 +46,7 @@ export interface Sql {
  */
 const globalRef = globalThis as typeof globalThis & {
   __pgSqlPromise__?: Promise<Sql>;
+  __pgPool__?: import("pg").Pool;
   __pgliteInstance__?: Promise<import("@electric-sql/pglite").PGlite>;
   __pgliteMigrateChain__?: Promise<void>;
 };
@@ -94,6 +95,7 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool({ connectionString: databaseUrl });
+    globalRef.__pgPool__ = pool;
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
@@ -192,6 +194,44 @@ export function getSql(): Promise<Sql> {
     throw err;
   });
   return sqlPromise;
+}
+
+/** One connection, begin/commit, so a quota or trial write cannot half-apply. */
+export async function withSqlTransaction<T>(fn: (sql: Sql) => Promise<T>): Promise<T> {
+  await getSql();
+  if (dbSource === "neon") {
+    const pool = globalRef.__pgPool__;
+    if (!pool) throw new Error("Postgres pool is not ready");
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      const sql = toSql(async <TRow>(text: string, params: unknown[]) => {
+        const res = await client.query(text, params);
+        return res.rows as TRow[];
+      });
+      const value = await fn(sql);
+      await client.query("commit");
+      return value;
+    } catch (error) {
+      try {
+        await client.query("rollback");
+      } catch {
+        /* the connection may already be aborted */
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  const pg = await globalRef.__pgliteInstance__;
+  if (!pg) throw new Error("PGLite is not ready");
+  return pg.transaction(async (tx) => {
+    const sql = toSql(async <TRow>(text: string, params: unknown[]) => {
+      const result = await tx.query<TRow>(text, params);
+      return result.rows;
+    });
+    return fn(sql);
+  });
 }
 
 /**

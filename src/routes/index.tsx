@@ -25,7 +25,7 @@ export const Route = createFileRoute("/")({
         href: "/brand/h/landing-desktop.ab63abf19c.avif",
         type: "image/avif",
         media: "(min-width:641px)",
-        fetchpriority: "high",
+        fetchPriority: "high",
       },
       {
         rel: "preload",
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/")({
         href: poster.phoneAvif,
         type: "image/avif",
         media: "(max-width:640px)",
-        fetchpriority: "high",
+        fetchPriority: "high",
       },
     ],
   }),

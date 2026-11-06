@@ -274,7 +274,7 @@ export function journeyHint(
   };
   for (const shop of seen) {
     const times = input.counts[shop.slug] ?? 0;
-    if (times < 1) continue;
+    if (times < 2) continue;
     const category = CATEGORY_WORDS[shop.category];
     if (category) add(input.ar ? category[1] : category[0], times);
     for (const word of shop.keywords ?? []) add(word, times);

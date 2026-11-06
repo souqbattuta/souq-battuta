@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useState, type FormEvent } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { sendSouqOtp } from "@/lib/souq-sync";
+import { readJoinPending, readSellerDraft } from "@/lib/seller-draft";
 
 export const Route = createFileRoute("/otp")({ component: OtpPage });
 
@@ -17,9 +18,15 @@ function OtpPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [wait, setWait] = useState(60);
+  const [held, setHeld] = useState("");
   const ar = lang === "ar";
+  const phone = pending?.phone || held;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const saved = readJoinPending();
+    const draft = readSellerDraft();
+    const next = (typeof saved?.phone === "string" && saved.phone) || draft?.phone || "";
+    if (next) setHeld(next);
     if (!pending?.phone) restorePending();
   }, [pending, restorePending]);
 
@@ -36,16 +43,16 @@ function OtpPage() {
     const res = await completeJoin(otp);
     setLoading(false);
     if (!res.ok) {
-      setError(res.error === "expired" ? t.otpExpired : res.error === "attempts" ? t.otpAttempts : res.error === "promo" ? (ar ? "الرمز الترويجي لم يعد صالحاً." : "That promotional code is no longer valid.") : t.badOtp);
+      setError(res.error === "expired" ? t.otpExpired : res.error === "attempts" ? t.otpAttempts : res.error === "promo" ? (ar ? "الرمز الترويجي لم يعد صالحاً." : "That promotional code is no longer valid.") : res.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : t.badOtp);
       return;
     }
     void navigate({ to: "/welcome" });
   }
 
   async function resend() {
-    if (!pending?.phone || wait > 0) return;
+    if (!phone || wait > 0) return;
     setError("");
-    const res = await sendSouqOtp({ data: { phone: pending.phone } });
+    const res = await sendSouqOtp({ data: { phone } });
     if (!res.ok) {
       if (res.retryAfter) setWait(res.retryAfter);
       setError(res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
@@ -62,7 +69,7 @@ function OtpPage() {
         </button>
         <h1 className="font-display text-3xl">{t.otpTitle}</h1>
         <p className="mt-2 text-sm text-mute">{t.otpBody}</p>
-        {pending?.phone ? <p className="mt-1 text-xs text-mute">{pending.phone}</p> : <p className="mt-2 text-sm text-mute">{ar ? "ابدأ من الخطوة الأولى إن لم يصل الرمز." : "Start from step one if this number is not yours."}</p>}
+        {phone ? <p className="mt-1 text-xs text-mute">{phone}</p> : <p className="mt-2 text-sm text-mute">{ar ? "ارجع للخطوة الأولى إن ضاع الرقم." : "Go back to step one if the number was lost."}</p>}
         <form className="mt-6 space-y-3" onSubmit={onSubmit}>
           <input
             name="otp"

@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { PLANS, type Shop } from "@/lib/data";
+import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
+import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -65,6 +68,24 @@ type Profile = z.infer<typeof profileSchema>;
 async function db() {
   const { getSql } = await import("@/lib/db");
   return getSql();
+}
+
+async function tx<T>(fn: (sql: Awaited<ReturnType<typeof db>>) => Promise<T>) {
+  const { withSqlTransaction } = await import("@/lib/db");
+  return withSqlTransaction(fn);
+}
+
+function planIdOf(plan: string | null | undefined) {
+  return plan === "basic" || plan === "grow" || plan === "premium" ? plan : "free";
+}
+
+function membershipPaused(account: { plan: string | null; data?: Record<string, unknown> | null }) {
+  const blob = account.data ?? {};
+  const plan = account.plan || "free";
+  const ends = typeof blob.planEnds === "number" ? blob.planEnds : 0;
+  const pending = blob.paymentStatus === "pending" && blob.pendingPlan && !ends;
+  const graceOver = Boolean(ends) && Date.now() > ends + (plan === "free" ? 0 : 5 * 86400000);
+  return Boolean(pending || graceOver);
 }
 
 type Kit = {
@@ -372,8 +393,8 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     const sql = await db();
     const ip = clientIp(s);
     if (!(await hitRate(sql, `ip:verify:${ip}`, 20, 3600))) return { ok: false as const, error: "rate" as const };
-    const allowTestOtp = !process.env.GROK_PROJECT_ID || process.env.SOUQ_ALLOW_TEST_OTP === "1";
-    const testCode = data.code === "424242" && allowTestOtp;
+    const allowTest = allowTestOtp();
+    const testCode = data.code === "424242" && allowTest;
     const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string }>`
       select code_hash, salt, attempts, expires_at from souq_otp where phone = ${data.phone}
     `;
@@ -407,6 +428,8 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     let paymentStatus: string | undefined;
     let pendingPlan: string | undefined;
     let billingPeriod: string | undefined;
+    let promoGrant: { code: string; plan: string; months: number } | null = null;
+    let wantsTrial = false;
     if (role === "seller") {
       const chosen = profile.pendingPlan || profile.plan;
       const paid = chosen === "basic" || chosen === "grow" || chosen === "premium";
@@ -420,20 +443,15 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         const promo = checkPromo(profile.promoCode, used.map((row) => ({
           code: row.code,
           phone: "",
-          plan: "free",
+          plan: "free" as const,
           months: 0,
           at: 0,
           endsAt: 0,
         })));
-        if (promo.ok) {
-          plan = promo.promo.plan;
-          planEnds = now + promo.promo.months * 30 * 86400000;
-          await sql`
-            insert into souq_promo_uses (code, phone, plan, months)
-            values (${promo.promo.code}, ${data.phone}, ${promo.promo.plan}, ${promo.promo.months})
-            on conflict (code, phone) do nothing
-          `;
-        }
+        if (!promo.ok) return { ok: false as const, error: "promo" as const };
+        plan = promo.promo.plan;
+        planEnds = now + promo.promo.months * 30 * 86400000;
+        promoGrant = { code: promo.promo.code, plan: promo.promo.plan, months: promo.promo.months };
       } else if (paid && profile.paymentStatus === "pending") {
         pendingPlan = chosen;
         paymentStatus = "pending";
@@ -441,9 +459,11 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       } else {
         const usedTrial = await sql<{ phone: string }>`select phone from souq_trial_phones where phone = ${data.phone}`;
         if (usedTrial[0]) return { ok: false as const, error: "trial" as const };
+        wantsTrial = true;
       }
       slug = slug ?? shopSlugFor(data.phone);
     }
+    if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
     const shopName = profile.shopName || profile.displayName || profile.username;
     const safe = {
       username: profile.username,
@@ -464,52 +484,75 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       paymentMethod: profile.paymentMethod,
       joinedAt: Date.now(),
     };
-    if (!existing) {
-      await sql`
-        insert into souq_accounts (phone, secret, password_hash, data, must_reset, phone_verified, role, shop_slug, plan, failed_logins)
-        values (${data.phone}, '', ${pending.password_hash}, ${JSON.stringify(safe)}::jsonb, false, true, ${role}, ${slug}, ${plan}, 0)
-      `;
-    } else {
-      await sql`
-        update souq_accounts set
-          secret = '',
-          password_hash = ${pending.password_hash},
-          data = ${JSON.stringify({ ...(existing.data ?? {}), ...safe })}::jsonb,
-          must_reset = false,
-          phone_verified = true,
-          failed_logins = 0,
-          locked_until = null,
-          role = ${role},
-          shop_slug = ${slug},
-          plan = ${plan},
-          updated_at = now()
-        where phone = ${data.phone}
-      `;
-      await sql`delete from souq_tokens where phone = ${data.phone}`;
-    }
-    if (role === "seller" && slug) {
-      await sql`
-        insert into souq_shops (slug, owner_phone, name, area, plan, category)
-        values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""})
-        on conflict (slug) do update set
-          owner_phone = excluded.owner_phone,
-          name = excluded.name,
-          area = excluded.area,
-          plan = excluded.plan,
-          category = excluded.category,
-          updated_at = now()
-      `;
-      await sql`
-        insert into souq_views (shop_slug) values (${slug})
-        on conflict (shop_slug) do nothing
-      `;
-      if (plan === "free" && paymentStatus === "active" && planEnds) {
-        await sql`
-          insert into souq_trial_phones (phone, trial_start, trial_end)
-          values (${data.phone}, now(), to_timestamp(${Math.floor(planEnds / 1000)}))
-          on conflict (phone) do nothing
-        `;
+    try {
+      await tx(async (trx) => {
+        if (wantsTrial && planEnds) {
+          const locked = await trx<{ phone: string }>`
+            insert into souq_trial_phones (phone, trial_start, trial_end)
+            values (${data.phone}, now(), to_timestamp(${Math.floor(planEnds / 1000)}))
+            on conflict (phone) do nothing
+            returning phone
+          `;
+          if (!locked[0]) {
+            const err = new Error("trial") as Error & { code?: string };
+            err.code = "trial";
+            throw err;
+          }
+        }
+        if (!existing) {
+          await trx`
+            insert into souq_accounts (phone, secret, password_hash, data, must_reset, phone_verified, role, shop_slug, plan, failed_logins)
+            values (${data.phone}, '', ${pending.password_hash}, ${JSON.stringify(safe)}::jsonb, false, true, ${role}, ${slug}, ${plan}, 0)
+          `;
+        } else {
+          await trx`
+            update souq_accounts set
+              secret = '',
+              password_hash = ${pending.password_hash},
+              data = ${JSON.stringify({ ...(existing.data ?? {}), ...safe })}::jsonb,
+              must_reset = false,
+              phone_verified = true,
+              failed_logins = 0,
+              locked_until = null,
+              role = ${role},
+              shop_slug = ${slug},
+              plan = ${plan},
+              updated_at = now()
+            where phone = ${data.phone}
+          `;
+          await trx`delete from souq_tokens where phone = ${data.phone}`;
+        }
+        if (role === "seller" && slug) {
+          await trx`
+            insert into souq_shops (slug, owner_phone, name, area, plan, category)
+            values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""})
+            on conflict (slug) do update set
+              owner_phone = excluded.owner_phone,
+              name = excluded.name,
+              area = excluded.area,
+              plan = excluded.plan,
+              category = excluded.category,
+              updated_at = now()
+          `;
+          await trx`
+            insert into souq_views (shop_slug) values (${slug})
+            on conflict (shop_slug) do nothing
+          `;
+        }
+        if (promoGrant) {
+          await trx`
+            insert into souq_promo_uses (code, phone, plan, months)
+            values (${promoGrant.code}, ${data.phone}, ${promoGrant.plan}, ${promoGrant.months})
+            on conflict (code, phone) do nothing
+          `;
+        }
+      });
+    } catch (error) {
+      if (error instanceof Error && (error as Error & { code?: string }).code === "trial") {
+        return { ok: false as const, error: "trial" as const };
       }
+      console.error("[souq] signup failed", error);
+      return { ok: false as const, error: "server" as const };
     }
     await sql`delete from souq_otp where phone = ${data.phone}`;
     await sql`delete from souq_pending where phone = ${data.phone}`;
@@ -676,7 +719,11 @@ export const pushSouq = createServerFn({ method: "POST" })
     for (const key of ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone", "interestWords", "algoOrder", "mutedWords", "mutedStalls", "algoUpdatedAt"] as const) {
       delete next[key];
     }
-    Object.assign(next, parsed.data);
+    const incoming = { ...parsed.data };
+    if (incoming.findWords) {
+      incoming.findWords = incoming.findWords.slice(0, PLANS[planIdOf(account.plan)].keywords);
+    }
+    Object.assign(next, incoming);
     for (const key of ["stallAvatar", "stallCover"] as const) {
       const value = next[key];
       if (typeof value === "string" && value.startsWith("data:")) delete next[key];
@@ -890,29 +937,68 @@ export const saveSouqListing = createServerFn({ method: "POST" })
       name: z.string().trim().min(2).max(120),
       price: z.number().finite().min(0).max(1_000_000).optional(),
       imageUrl: z.string().trim().max(500).optional(),
+      thumbUrl: z.string().trim().max(500).optional(),
+      images: z.array(z.string().trim().max(500)).max(8).optional(),
+      hidden: z.boolean().optional(),
       body: z.record(z.string(), z.unknown()).optional(),
     }),
   )
   .handler(async ({ data }) => {
+    if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
     const account = await loadAccount(sql, phone);
     if (!account?.shop_slug || account.role !== "seller") return { ok: false as const, error: "auth" as const };
-    const image = data.imageUrl && !data.imageUrl.startsWith("data:") ? data.imageUrl : null;
-    const body = data.body ?? {};
+    if (membershipPaused(account)) return { ok: false as const, error: "paused" as const };
+    const limits = PLANS[planIdOf(account.plan)];
+    const images = (data.images ?? []).filter((url) => url && !url.startsWith("data:")).slice(0, limits.images);
+    const image = (data.imageUrl && !data.imageUrl.startsWith("data:") ? data.imageUrl : images[0]) ?? null;
+    const thumb = (data.thumbUrl && !data.thumbUrl.startsWith("data:") ? data.thumbUrl : image) ?? null;
+    const body: Record<string, unknown> = { ...(data.body ?? {}), images, hidden: Boolean(data.hidden) };
     delete body.password;
+    const existing = await sql<{ id: string }>`select id from souq_listings where id = ${data.id} and owner_phone = ${phone}`;
+    if (!existing[0]) {
+      const count = await sql<{ n: number }>`select count(*)::int as n from souq_listings where shop_slug = ${account.shop_slug} and owner_phone = ${phone}`;
+      if (Number(count[0]?.n ?? 0) >= limits.listings) return { ok: false as const, error: "limit" as const };
+    }
     await sql`
-      insert into souq_listings (id, shop_slug, owner_phone, name, price, image_url, body)
-      values (${data.id}, ${account.shop_slug}, ${phone}, ${data.name}, ${data.price ?? null}, ${image}, ${JSON.stringify(body)}::jsonb)
+      insert into souq_listings (id, shop_slug, owner_phone, name, price, image_url, thumb_url, images, body)
+      values (${data.id}, ${account.shop_slug}, ${phone}, ${data.name}, ${data.price ?? null}, ${image}, ${thumb}, ${JSON.stringify(images)}::jsonb, ${JSON.stringify(body)}::jsonb)
       on conflict (id) do update set
         name = excluded.name,
         price = excluded.price,
         image_url = excluded.image_url,
+        thumb_url = excluded.thumb_url,
+        images = excluded.images,
         body = excluded.body
       where souq_listings.owner_phone = ${phone}
     `;
-    return { ok: true as const, imageUrl: image };
+    return { ok: true as const, imageUrl: image, images };
+  });
+
+export const deleteSouqListing = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().trim().min(2).max(80) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    await sql`delete from souq_listings where id = ${data.id} and owner_phone = ${phone}`;
+    return { ok: true as const };
+  });
+
+export const setSouqListingHidden = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().trim().min(2).max(80), hidden: z.boolean() }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    await sql`
+      update souq_listings
+      set body = coalesce(body, '{}'::jsonb) || ${JSON.stringify({ hidden: data.hidden })}::jsonb
+      where id = ${data.id} and owner_phone = ${phone}
+    `;
+    return { ok: true as const };
   });
 
 export const uploadListingImage = createServerFn({ method: "POST" })
@@ -952,6 +1038,10 @@ async function storeImage(dataUrl: string, kind: "listing" | "hello") {
     const small = await put(`${folder}/${id}-thumb.webp`, thumb, { access: "public", token, contentType: type });
     return { ok: true as const, url: big.url, thumbUrl: small.url };
   }
+  if (process.env.NODE_ENV === "production") {
+    console.error("[souq] BLOB_READ_WRITE_TOKEN is missing in production");
+    return { ok: false as const, error: "storage" as const };
+  }
   const { mkdir, writeFile } = await import("node:fs/promises");
   const dir = "public/media";
   await mkdir(dir, { recursive: true });
@@ -963,39 +1053,47 @@ async function storeImage(dataUrl: string, kind: "listing" | "hello") {
 export const publishHello = createServerFn({ method: "POST" })
   .validator(z.object({ text: z.string().trim().min(2).max(88), lang: z.enum(["en", "ar"]).optional(), image: z.string().min(8) }))
   .handler(async ({ data }) => {
-    const sql = await db();
-    const phone = await sessionPhone(sql);
-    if (!phone) return { ok: false as const, error: "auth" as const };
-    const account = await loadAccount(sql, phone);
-    if (!account || account.role !== "seller" || !account.shop_slug) return { ok: false as const, error: "auth" as const };
-    const plan = account.plan || "free";
-    const blob = account.data ?? {};
-    const ends = typeof blob.planEnds === "number" ? blob.planEnds : 0;
-    const pending = blob.paymentStatus === "pending" && blob.pendingPlan && !ends;
-    const graceOver = Boolean(ends) && Date.now() > ends + (plan === "free" ? 0 : 5 * 86400000);
-    if (pending || graceOver) return { ok: false as const, error: "paused" as const };
-    const cap = HELLO_CAP[plan] ?? 1;
-    const spentRows = await sql<{ n: number }>`
-      select count(*)::int as n from souq_hello_posts
-      where owner_phone = ${phone} and created_at > now() - interval '24 hours'
-    `;
-    const spent = Number(spentRows[0]?.n ?? 0);
-    if (spent >= cap) return { ok: false as const, error: "limit" as const, spent, cap };
-    let imageUrl = data.image;
-    let thumbUrl = data.image;
-    if (data.image.startsWith("data:")) {
-      const stored = await storeImage(data.image, "hello");
-      if (!stored.ok) return stored;
-      imageUrl = stored.url;
-      thumbUrl = stored.thumbUrl;
+    try {
+      if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
+      const sql = await db();
+      const phone = await sessionPhone(sql);
+      if (!phone) return { ok: false as const, error: "auth" as const };
+      const account = await loadAccount(sql, phone);
+      if (!account || account.role !== "seller" || !account.shop_slug) return { ok: false as const, error: "auth" as const };
+      if (membershipPaused(account)) return { ok: false as const, error: "paused" as const };
+      const plan = planIdOf(account.plan);
+      const cap = HELLO_CAP[plan] ?? 1;
+      let imageUrl = data.image;
+      let thumbUrl = data.image;
+      if (data.image.startsWith("data:")) {
+        const stored = await storeImage(data.image, "hello");
+        if (!stored.ok) return stored;
+        imageUrl = stored.url;
+        thumbUrl = stored.thumbUrl;
+      } else if (!imageUrl.startsWith("/") && !imageUrl.startsWith("https://")) {
+        return { ok: false as const, error: "type" as const };
+      }
+      const s = await kit();
+      const id = `hw-${s.randomBytes(6).toString("hex")}`;
+      const placed = await tx(async (trx) => {
+        await trx`select pg_advisory_xact_lock(hashtext(${phone}))`;
+        const spentRows = await trx<{ n: number }>`
+          select count(*)::int as n from souq_hello_posts
+          where owner_phone = ${phone} and created_at > now() - interval '24 hours'
+        `;
+        const spent = Number(spentRows[0]?.n ?? 0);
+        if (spent >= cap) return { ok: false as const, error: "limit" as const, spent, cap };
+        await trx`
+          insert into souq_hello_posts (id, shop_slug, owner_phone, text, lang, image_url, thumb_url, expires_at, edit_until)
+          values (${id}, ${account.shop_slug}, ${phone}, ${data.text}, ${data.lang ?? "en"}, ${imageUrl}, ${thumbUrl}, now() + interval '24 hours', now() + interval '15 minutes')
+        `;
+        return { ok: true as const, id, spent: spent + 1, cap, imageUrl, thumbUrl, at: Date.now() };
+      });
+      return placed;
+    } catch (error) {
+      console.error("[hello] publish failed", error);
+      return { ok: false as const, error: "server" as const };
     }
-    const s = await kit();
-    const id = `hw-${s.randomBytes(6).toString("hex")}`;
-    await sql`
-      insert into souq_hello_posts (id, shop_slug, owner_phone, text, lang, image_url, thumb_url, expires_at, edit_until)
-      values (${id}, ${account.shop_slug}, ${phone}, ${data.text}, ${data.lang ?? "en"}, ${imageUrl}, ${thumbUrl}, now() + interval '24 hours', now() + interval '15 minutes')
-    `;
-    return { ok: true as const, id, spent: spent + 1, cap, imageUrl, thumbUrl, at: Date.now() };
   });
 
 export const editHello = createServerFn({ method: "POST" })
@@ -1127,12 +1225,14 @@ export const listPublicShops = createServerFn({ method: "GET" })
       order by s.created_at desc
       limit ${limit} offset ${cursor}
     `;
-    const slugs = new Set(rows.map((row) => row.slug));
-    const listings = await sql<{ id: string; shop_slug: string; name: string; price: string | null; image_url: string | null; thumb_url: string | null }>`
-      select id, shop_slug, name, price, image_url, thumb_url from souq_listings
-      order by created_at desc
-      limit 400
-    `;
+    const slugs = rows.map((row) => row.slug);
+    const listings = slugs.length
+      ? await sql<{ id: string; shop_slug: string; name: string; price: string | null; image_url: string | null; thumb_url: string | null; images: unknown }>`
+          select id, shop_slug, name, price, image_url, thumb_url, images from souq_listings
+          where shop_slug = any(${slugs}::text[])
+            and coalesce(body->>'hidden', 'false') <> 'true'
+        `
+      : [];
     return {
       ok: true as const,
       shops: rows.map((row) => {
@@ -1155,20 +1255,30 @@ export const listPublicShops = createServerFn({ method: "GET" })
           avatar: photo,
           cover: row.cover_url || photo,
           createdAt: new Date(row.created_at).getTime(),
-          products: items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price == null ? 0 : Number(item.price),
-            image: item.thumb_url || item.image_url || "",
-            full: item.image_url || item.thumb_url || "",
-          })),
+          products: items.map((item) => {
+            const gallery = Array.isArray(item.images) ? item.images.filter((src): src is string => typeof src === "string" && src.length > 0) : [];
+            const full = item.image_url || gallery[0] || item.thumb_url || "";
+            return {
+              id: item.id,
+              name: item.name,
+              price: item.price == null ? 0 : Number(item.price),
+              image: item.thumb_url || gallery[0] || full,
+              full,
+              images: gallery.length ? gallery : [full].filter(Boolean),
+            };
+          }),
         };
       }),
     };
   });
 
 export const listHello = createServerFn({ method: "GET" })
-  .validator(z.object({ cursor: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(20).optional() }).optional())
+  .validator(z.object({
+    cursor: z.number().int().nonnegative().optional(),
+    limit: z.number().int().min(1).max(20).optional(),
+    follows: z.array(z.string().trim().min(1).max(80)).max(80).optional(),
+    words: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+  }).optional())
   .handler(async ({ data }) => {
     const sql = await db();
     const limit = data?.limit ?? 20;
@@ -1184,29 +1294,43 @@ export const listHello = createServerFn({ method: "GET" })
       expires_at: string;
       views: number;
       hearts: number;
+      shop_name: string | null;
+      keywords: unknown;
+      category: string | null;
     }>`
-      select id, shop_slug, text, lang, image_url, thumb_url, created_at, expires_at, views, hearts
-      from souq_hello_posts
-      where status = 'live' and expires_at > now()
-      order by created_at desc
-      limit ${limit} offset ${cursor}
+      select p.id, p.shop_slug, p.text, p.lang, p.image_url, p.thumb_url, p.created_at, p.expires_at, p.views, p.hearts,
+             s.name as shop_name, s.keywords, s.category
+      from souq_hello_posts p
+      left join souq_shops s on s.slug = p.shop_slug and s.hidden = false
+      where p.status = 'live' and p.expires_at > now()
+      order by p.created_at desc
     `;
-    return {
-      ok: true as const,
-      posts: rows.map((row) => ({
-        id: row.id,
-        shopSlug: row.shop_slug,
-        text: row.text,
-        lang: row.lang === "ar" ? "ar" : "en",
-        image: row.thumb_url || row.image_url || "",
-        full: row.image_url || row.thumb_url || "",
-        at: new Date(row.created_at).getTime(),
-        expiresAt: new Date(row.expires_at).getTime(),
-        views: Number(row.views ?? 0),
-        hearts: Number(row.hearts ?? 0),
-        status: "live" as const,
-      })),
-    };
+    const posts = rows.map((row) => ({
+      id: row.id,
+      shopSlug: row.shop_slug,
+      text: row.text,
+      lang: row.lang === "ar" ? "ar" as const : "en" as const,
+      image: row.thumb_url || row.image_url || "",
+      full: row.image_url || row.thumb_url || "",
+      at: new Date(row.created_at).getTime(),
+      expiresAt: new Date(row.expires_at).getTime(),
+      views: Number(row.views ?? 0),
+      hearts: Number(row.hearts ?? 0),
+      status: "live" as const,
+      shopName: row.shop_name ?? "",
+      keywords: Array.isArray(row.keywords) ? row.keywords.filter((word): word is string => typeof word === "string") : [],
+      category: row.category ?? "",
+    }));
+    const shops = posts.map((post) => ({
+      slug: post.shopSlug,
+      name: post.shopName,
+      nameAr: post.shopName,
+      keywords: post.keywords,
+      category: post.category || "misc",
+    }));
+    const ranked = rankHello(posts, { words: data?.words ?? [], follows: data?.follows ?? [], shops: shops as Shop[] });
+    const page = ranked.slice(cursor, cursor + limit);
+    return { ok: true as const, posts: page };
   });
 
 export const reportTarget = createServerFn({ method: "POST" })
@@ -1256,9 +1380,16 @@ export const adminReports = createServerFn({ method: "GET" }).handler(async () =
     status: string;
     note: string;
     created_at: string;
+    hello_text: string | null;
+    shop_name: string | null;
   }>`
-    select id, target_type, target_id, reporter_phone, reason, status, note, created_at
-    from souq_reports order by created_at desc limit 100
+    select r.id, r.target_type, r.target_id, r.reporter_phone, r.reason, r.status, r.note, r.created_at,
+           h.text as hello_text, s.name as shop_name
+    from souq_reports r
+    left join souq_hello_posts h on r.target_type = 'hello' and h.id = r.target_id
+    left join souq_shops s on r.target_type = 'shop' and s.slug = r.target_id
+    order by r.created_at desc
+    limit 100
   `;
   return { ok: true as const, reports: rows };
 });

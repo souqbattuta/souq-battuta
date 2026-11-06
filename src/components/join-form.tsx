@@ -81,6 +81,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
           profile: {
             username,
             displayName: shopName,
+            shopName,
             city,
             address,
             intent: "seller",

@@ -123,6 +123,7 @@ export function sampleHello(now = Date.now()): HelloPost[] {
 
 export function boardPosts(accounts: { helloPosts?: HelloPost[] }[], now = Date.now()) {
   const live = postsToday(accounts.flatMap((account) => account.helloPosts ?? []), now);
+  if (process.env.NODE_ENV === "production") return live;
   const ids = new Set(live.map((post) => post.id));
   return [...live, ...sampleHello(now).filter((post) => !ids.has(post.id))];
 }
@@ -130,6 +131,37 @@ export function boardPosts(accounts: { helloPosts?: HelloPost[] }[], now = Date.
 export function boardHandles(handles: HelloHandle[]) {
   const have = new Set(handles.map((item) => item.handle.toLowerCase()));
   return [...handles, ...SAMPLE_HANDLES.filter((item) => !have.has(item.handle.toLowerCase()))];
+}
+
+export function helloFailCopy(code: string, ar: boolean) {
+  const en: Record<string, string> = {
+    limit: "That is all your plan allows in these 24 hours.",
+    locked: "The 15-minute edit window has closed.",
+    paused: "Your free trial is done. Your shop is paused.",
+    storage: "Photo storage is not ready. Try again.",
+    size: "That photo is too large. Use a smaller one.",
+    type: "That photo was not accepted. Try a JPEG or PNG.",
+    timeout: "Publishing did not finish. Your allowance was not used. Try again.",
+    server: "Publishing did not finish. Your allowance was not used. Try again.",
+    database: "The shop database is not ready. Try again.",
+    auth: "Sign in as a seller to post.",
+    name: "Add a line and a photo.",
+  };
+  const arabic: Record<string, string> = {
+    limit: "خلصت المشاركات لهذه الساعات.",
+    locked: "خلصت مدة التعديل.",
+    paused: "انتهت التجربة المجانية. الدكان متوقف.",
+    storage: "تخزين الصور غير جاهز. حاول لاحقاً.",
+    size: "الصورة كبيرة. استخدم صورة أصغر.",
+    type: "هذه الصورة ما انقبلت. جرب JPEG أو PNG.",
+    timeout: "النشر ما اكتمل. ما انخصم من رصيدك. حاول مرة ثانية.",
+    server: "النشر ما اكتمل. ما انخصم من رصيدك. حاول مرة ثانية.",
+    database: "قاعدة الدكاكين غير جاهزة. حاول مرة ثانية.",
+    auth: "سجّل الدخول كبائع.",
+    name: "اكتب سطر وضيف صورة.",
+  };
+  const table = ar ? arabic : en;
+  return table[code] ?? (ar ? "النشر ما اكتمل. ما انخصم من رصيدك. حاول مرة ثانية." : "Publishing did not finish. Your allowance was not used. Try again.");
 }
 
 export function homeHello(posts: HelloPost[], follows: string[], words: string[] = []) {

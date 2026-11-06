@@ -35,6 +35,8 @@ function ShelfPage() {
   const buyerOrders = useSession((s) => s.orders) ?? [];
   const orderSlugs = useMemo(() => [...new Set(buyerOrders.map((order) => order.shopSlug).filter(Boolean))], [buyerOrders]);
   const ensureDirectory = useSession((s) => s.ensureDirectory);
+  const shopHasMore = useSession((s) => s.shopHasMore);
+  const shopCursor = useSession((s) => s.shopCursor ?? 0);
   useEffect(() => {
     ensureDirectory();
   }, [ensureDirectory]);
@@ -47,7 +49,7 @@ function ShelfPage() {
   const tieSeed = useTieSeed();
   const browsedCategories = useMemo(() => {
     const by = new Map(catalog.map((shop) => [shop.slug, shop.category]));
-    return [...new Set(visited.map((slug) => by.get(slug)).filter((id): id is string => Boolean(id)))];
+    return [...new Set(visited.map((slug: string) => by.get(slug)).filter((id): id is string => typeof id === "string"))];
   }, [catalog, visited]);
   const forYou = useMemo(
     () => rankForYou(catalog, { words, favorites, bookmarks, visited, visits, follows, ordered: orderSlugs, shared, order: algo, referred: user?.referredBy, mutedWords, mutedStalls, tieSeed, browsedCategories }),
@@ -100,8 +102,15 @@ function ShelfPage() {
         ) : (
           <>
             <ShopTiles shelf={`more-${kind}-${aisle}`} shops={page} ar={ar} />
-            {shown < full.length && (
-              <button type="button" className="shelf-more" onClick={() => setShown((n) => n + 20)}>
+            {(shown < full.length || shopHasMore) && (
+              <button
+                type="button"
+                className="shelf-more"
+                onClick={() => {
+                  if (shopHasMore) void ensureDirectory(shopCursor);
+                  setShown((n) => n + 20);
+                }}
+              >
                 {ar ? "المزيد" : "More"}
               </button>
             )}

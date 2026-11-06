@@ -47,16 +47,52 @@ export function nearest(shops: Shop[], origin: { lat: number; lng: number }) {
     .sort((a, b) => a.km - b.km);
 }
 
-/** Equal chance. Same seed keeps the order while they scroll. */
-export function shuffled<T>(list: T[], seed: number) {
-  const next = [...list];
-  let state = (seed % 2147483646) + 1;
-  for (let i = next.length - 1; i > 0; i -= 1) {
-    state = (state * 16807) % 2147483647;
-    const j = state % (i + 1);
-    const swap = next[i];
-    next[i] = next[j];
-    next[j] = swap;
+/** xoshiro128** from a 128-bit seed. Returns a float in [0, 1). */
+export function xoshiro128(seed: Uint32Array) {
+  let a = seed[0] >>> 0 || 1;
+  let b = seed[1] >>> 0;
+  let c = seed[2] >>> 0;
+  let d = seed[3] >>> 0;
+  const rotl = (x: number, k: number) => ((x << k) | (x >>> (32 - k))) >>> 0;
+  return () => {
+    const result = Math.imul(rotl(Math.imul(b, 5) >>> 0, 7), 9) >>> 0;
+    const t = (b << 9) >>> 0;
+    c ^= a;
+    d ^= b;
+    b ^= c;
+    a ^= d;
+    c ^= t;
+    d = rotl(d, 11);
+    return result / 4294967296;
+  };
+}
+
+export function cryptoSeed() {
+  const seed = new Uint32Array(4);
+  crypto.getRandomValues(seed);
+  if ((seed[0] | seed[1] | seed[2] | seed[3]) === 0) seed[0] = 1;
+  return seed;
+}
+
+function unbiased(next: () => number, limit: number) {
+  if (limit <= 1) return 0;
+  const bound = Math.floor(0x100000000 / limit) * limit;
+  let roll = 0;
+  do {
+    roll = Math.floor(next() * 0x100000000);
+  } while (roll >= bound);
+  return roll % limit;
+}
+
+/** Fisher–Yates. The list you pass is copied; the original is left alone. */
+export function shuffled<T>(list: T[], seed: Uint32Array) {
+  const next = xoshiro128(seed);
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = unbiased(next, i + 1);
+    const swap = copy[i];
+    copy[i] = copy[j];
+    copy[j] = swap;
   }
-  return next;
+  return copy;
 }

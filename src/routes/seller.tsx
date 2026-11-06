@@ -218,7 +218,7 @@ function SellerDesk() {
     void navigate({ to: "/seller", search: { tab: "edit", item: id, order: "", note: "" } });
   }
 
-  function onListing(event: FormEvent<HTMLFormElement>) {
+  async function onListing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const cap = TEXT_CAP[planId];
     if (descDraft.length > cap || descArDraft.length > cap) {
@@ -240,10 +240,21 @@ function SellerDesk() {
       choices: planId === "premium" ? toChoices(choices) : undefined,
       chart: planId === "premium" ? chart || undefined : undefined,
     };
-    const res = editingId ? updateListing(editingId, payload) : addListing(payload);
-    if (!res.ok) {
+    const res = editingId ? await updateListing(editingId, payload) : await addListing(payload);
+    if (!res?.ok) {
       setListOk(false);
-      setListError("error" in res && res.error === "limit" ? (ar ? `هذه الخطة تسمح بـ ${plan.listings} منتجات.` : `This plan allows ${plan.listings} listings.`) : ar ? "الاسم لازم يكون حرفين على الأقل." : "Add a name of at least 2 letters.");
+      const code = res && "error" in res ? String(res.error) : "";
+      setListError(
+        code === "limit"
+          ? (ar ? `هذه الخطة تسمح بـ ${plan.listings} منتجات.` : `This plan allows ${plan.listings} listings.`)
+          : code === "storage" || code === "type" || code === "size"
+            ? (ar ? "الصورة ما انحفظت. جرب صورة أصغر." : "The photo was not saved. Try a smaller one.")
+            : code === "paused"
+              ? (ar ? "الدكان متوقف." : "Your shop is paused.")
+              : code === "name" || !code
+                ? (ar ? "الاسم لازم يكون حرفين على الأقل." : "Add a name of at least 2 letters.")
+                : (ar ? "ما انحفظ المنتج. حاول مرة ثانية." : "The product was not saved. Try again."),
+      );
       return;
     }
     setListError("");
@@ -675,7 +686,7 @@ function SellerDesk() {
         {tab === "hello" && (
           <section className="mt-6">
             <h2 className="font-display text-2xl">Hello, World!</h2>
-            <p className="hw-note">{ar ? "احكِ مع مجتمعك من هنا. منشورات اليوم بتختفي من اللوح بنص الليل، والسجل بيضل لشهر." : "Talk to your community here. Today's posts leave the board at midnight. History keeps them for a month."}</p>
+            <p className="hw-note">{ar ? "احكِ مع مجتمعك من هنا. كل منشور يبقى ٢٤ ساعة من وقت نشره، والسجل بيضل لشهر." : "Talk to your community here. Each post stays up for 24 hours from the time it was published. History keeps it for a month."}</p>
             <HelloComposer />
           </section>
         )}

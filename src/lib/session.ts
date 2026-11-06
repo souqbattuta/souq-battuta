@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { HELLO_CAP, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
+import { HELLO_CAP, HELLO_EDIT, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
 import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, hasWord, shopMuted, shopText } from "./shelves";
 export type BookmarkList = any;
 export type BuyerAccount = any;
@@ -12,7 +12,7 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, deleteHelloPost, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
@@ -43,6 +43,48 @@ function publicSocials(account: any) {
 }
 function rows(value: any): any[] {
   return value && typeof value === "object" ? Object.values(value) : [];
+}
+
+async function shrinkDataUrl(dataUrl: string) {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:") || dataUrl.length < 350_000) return dataUrl;
+  if (typeof document === "undefined") return dataUrl;
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("image"));
+      img.src = dataUrl;
+    });
+    const max = 1280;
+    const scale = Math.min(1, max / Math.max(img.width || max, img.height || max));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((img.width || max) * scale));
+    canvas.height = Math.max(1, Math.round((img.height || max) * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } catch {
+    return dataUrl;
+  }
+}
+
+async function storedImages(images: string[]) {
+  const urls: string[] = [];
+  const thumbs: string[] = [];
+  for (const img of images) {
+    if (!img) continue;
+    if (img.startsWith("data:")) {
+      const up = await uploadListingImage({ data: { dataUrl: await shrinkDataUrl(img) } });
+      if (!up.ok) return { ok: false as const, error: "error" in up ? up.error : "storage" };
+      urls.push(up.url);
+      thumbs.push("thumbUrl" in up && up.thumbUrl ? up.thumbUrl : up.url);
+    } else if (img.startsWith("https://") || img.startsWith("/")) {
+      urls.push(img);
+      thumbs.push(img);
+    }
+  }
+  return { ok: true as const, urls, thumbs };
 }
 function mailId(a: any, b: any) {
   return [a, b].sort().join("|");
@@ -195,7 +237,7 @@ function shopFromPublic(row: {
   avatar: string;
   cover: string;
   createdAt: number;
-  products: { id: string; name: string; price: number; image: string; full: string }[];
+  products: { id: string; name: string; price: number; image: string; full: string; images?: string[] }[];
 }): Shop {
   const category = asCategory(row.category);
   return {
@@ -219,7 +261,7 @@ function shopFromPublic(row: {
       price: item.price,
       desc: "",
       descAr: "",
-      images: [item.image || item.full].filter(Boolean),
+      images: (item.images && item.images.length ? item.images : [item.full || item.image].filter(Boolean)),
     })),
     mode: "inquire",
     km: 0,
@@ -550,22 +592,23 @@ function applyRemoteAlgo(get: any, set: any, algo: any) {
 }
 
 async function publishAlgo(get: any, set: any) {
-  if (applyingAlgo) return;
+  if (applyingAlgo) return true;
   const s = get();
-  if (!s.user?.phone) return;
+  if (!s.user?.phone) return true;
   const stamps = s.algoStamps ?? {};
   const data: Record<string, { value: string[]; updatedAt: number }> = {};
   if (stamps.interestWords) data.interestWords = { value: (s.interestWords ?? []).filter(Boolean), updatedAt: stamps.interestWords };
   if (stamps.algoOrder) data.algoOrder = { value: (s.algoOrder ?? []).filter(Boolean), updatedAt: stamps.algoOrder };
   if (stamps.mutedWords) data.mutedWords = { value: (s.mutedWords ?? []).filter(Boolean), updatedAt: stamps.mutedWords };
   if (stamps.mutedStalls) data.mutedStalls = { value: (s.mutedStalls ?? []).filter(Boolean), updatedAt: stamps.mutedStalls };
-  if (!Object.keys(data).length) return;
+  if (!Object.keys(data).length) return true;
   try {
     const res = await syncSouqAlgo({ data });
-    if (!res?.ok || !res.algo) return;
+    if (!res?.ok || !res.algo) return false;
     applyRemoteAlgo(get, set, res.algo);
+    return true;
   } catch {
-    /* offline */
+    return false;
   }
 }
 
@@ -988,9 +1031,10 @@ const useSession = create<any>()(
         if ((get().reports ?? []).some((item: any) => item.key === key && item.by === user.phone)) return { ok: true };
         const report = { id: `rep-${Date.now()}`, key, comment: "stall", by: user.phone, at: Date.now(), removed: false };
         set({ reports: [report, ...get().reports ?? []] });
+        void reportTarget({ data: { targetType: "shop", targetId: String(slug), reason: "shop" } });
         withBuyer(get, set, {
           notes: [
-            { id: `n-${Date.now()}`, title: "Report received", body: "Souq Battuta will look at this stall.", href: `/shop/${slug}`, at: Date.now() },
+            { id: `n-${Date.now()}`, title: "Report received", body: "Souq Battuta will look at this shop.", href: `/shop/${slug}`, at: Date.now() },
             ...get().notes,
           ],
         });
@@ -1138,7 +1182,7 @@ const useSession = create<any>()(
         withBuyer(get, set, { follows });
       },
       recordWa: (slug: any) => set((s: any) => ({ waTaps: { ...s.waTaps ?? {}, [slug]: ((s.waTaps ?? {})[slug] ?? 0) + 1 } })),
-      addListing: (listing: any) => {
+      addListing: async (listing: any) => {
         const user = get().user;
         if (!user?.shopSlug || user.role !== "seller") return { ok: false, error: "auth" };
         const name = listing.name.trim();
@@ -1149,6 +1193,8 @@ const useSession = create<any>()(
         if (mine.length >= plan.listings) return { ok: false, error: "limit" };
         const cap = user.sellerPlan === "grow" || user.sellerPlan === "premium" ? 6 : plan.images;
         const images = listing.images.filter(Boolean).slice(0, cap);
+        const stored = await storedImages(images);
+        if (!stored.ok) return { ok: false, error: stored.error };
         const next = {
           id: `sku-${Date.now()}`,
           shopSlug: user.shopSlug,
@@ -1158,39 +1204,50 @@ const useSession = create<any>()(
           priceMode: listing.priceMode ?? "price",
           desc: listing.desc.trim(),
           descAr: listing.descAr.trim() || listing.desc.trim(),
-          images: images.length ? images : ["/brand/avatars/default-duck.jpg"],
+          images: stored.urls.length ? stored.urls : ["/brand/avatars/default-duck.jpg"],
           group: listing.group?.trim() || void 0,
           groupAr: listing.groupAr?.trim() || void 0,
           choices: user.sellerPlan === "premium" ? cleanChoices(listing.choices) : void 0,
           chart: user.sellerPlan === "premium" ? listing.chart || void 0 : void 0
         };
-        const listings = [next, ...get().listings ?? []];
-        withBuyer(get, set, { listings });
-        void (async () => {
-          const urls: string[] = [];
-          for (const img of images) {
-            if (typeof img === "string" && img.startsWith("data:")) {
-              const up = await uploadListingImage({ data: { dataUrl: img } });
-              if (up.ok) urls.push(up.url);
-            } else if (typeof img === "string" && (img.startsWith("https://") || img.startsWith("/"))) urls.push(img);
-          }
-          const imageUrl = urls.find((url) => !url.startsWith("data:"));
-          await saveSouqListing({ data: { id: next.id, name, price: next.price, imageUrl, body: { nameAr, desc: next.desc } } });
-          if (imageUrl) {
-            const current = get().listings ?? [];
-            set({ listings: current.map((item: any) => item.id === next.id ? { ...item, images: urls.length ? urls : item.images } : item) });
-          }
-        })();
+        const saved = await saveSouqListing({
+          data: {
+            id: next.id,
+            name,
+            price: next.price,
+            imageUrl: stored.urls[0],
+            thumbUrl: stored.thumbs[0],
+            images: stored.urls,
+            body: { nameAr, desc: next.desc, descAr: next.descAr, images: stored.urls },
+          },
+        });
+        if (!saved.ok) return saved;
+        withBuyer(get, set, { listings: [next, ...get().listings ?? []] });
         return { ok: true };
       },
-      updateListing: (id: any, listing: any) => {
+      updateListing: async (id: any, listing: any) => {
         const user = get().user;
-        if (!user?.shopSlug) return { ok: false };
+        if (!user?.shopSlug) return { ok: false, error: "auth" };
         const name = listing.name.trim();
-        if (name.length < 2) return { ok: false };
+        if (name.length < 2) return { ok: false, error: "name" };
         const planId = user.sellerPlan ?? "free";
         const cap = planId === "grow" || planId === "premium" ? 6 : PLANS[planId as keyof typeof PLANS].images;
         const images = listing.images.filter(Boolean).slice(0, cap);
+        const stored = await storedImages(images);
+        if (!stored.ok) return { ok: false, error: stored.error };
+        const nextImages = stored.urls.length ? stored.urls : images.filter((img: string) => !img.startsWith("data:"));
+        const saved = await saveSouqListing({
+          data: {
+            id,
+            name,
+            price: listing.priceMode && listing.priceMode !== "price" ? 0 : Math.max(0, Number(listing.price) || 0),
+            imageUrl: nextImages[0],
+            thumbUrl: stored.thumbs[0] || nextImages[0],
+            images: nextImages,
+            body: { nameAr: listing.nameAr.trim() || name, desc: listing.desc.trim(), descAr: listing.descAr.trim() || listing.desc.trim(), images: nextImages },
+          },
+        });
+        if (!saved.ok) return saved;
         const listings = (get().listings ?? []).map(
           (item: any) => item.id === id ? {
             ...item,
@@ -1200,7 +1257,7 @@ const useSession = create<any>()(
             priceMode: listing.priceMode ?? "price",
             desc: listing.desc.trim(),
             descAr: listing.descAr.trim() || listing.desc.trim(),
-            images: images.length ? images : item.images,
+            images: nextImages.length ? nextImages : item.images,
             group: listing.group?.trim() || void 0,
             groupAr: listing.groupAr?.trim() || listing.group?.trim() || void 0,
             choices: user.sellerPlan === "premium" ? cleanChoices(listing.choices) : void 0,
@@ -1210,15 +1267,21 @@ const useSession = create<any>()(
         withBuyer(get, set, { listings });
         return { ok: true };
       },
-      removeListing: (id: any) => {
+      removeListing: async (id: any) => {
         const user = get().user;
-        if (!user?.shopSlug) return;
+        if (!user?.shopSlug) return { ok: false };
+        const saved = await deleteSouqListing({ data: { id: String(id) } });
+        if (!saved.ok) return saved;
         const listings = (get().listings ?? []).filter((item: any) => item.id !== id);
         withBuyer(get, set, { listings });
+        return { ok: true };
       },
       toggleListing: (id: any) => {
-        const listings = (get().listings ?? []).map((item: any) => item.id === id ? { ...item, hidden: !item.hidden } : item);
+        const current = (get().listings ?? []).find((item: any) => item.id === id);
+        const hidden = !current?.hidden;
+        const listings = (get().listings ?? []).map((item: any) => item.id === id ? { ...item, hidden } : item);
         withBuyer(get, set, { listings });
+        void setSouqListingHidden({ data: { id: String(id), hidden } });
       },
       hideListing: (id: any, reason: any, back: any) => {
         const listings = (get().listings ?? []).map(
@@ -1368,13 +1431,17 @@ const useSession = create<any>()(
         });
         void patchSouqOrder({ data: { orderId: id, status: "done" } });
       },
-      ensureDirectory: async () => {
+      ensureDirectory: async (cursor = 0) => {
         try {
-          const res = await listPublicShops({ data: { limit: 20, cursor: 0 } });
+          const res = await listPublicShops({ data: { limit: 20, cursor } });
           if (!res.ok) return;
           const shops = res.shops.map(shopFromPublic);
-          setRemoteShops(shops);
-          set({ serverShops: shops });
+          const prev = cursor ? get().serverShops ?? [] : [];
+          const by = new Map<string, Shop>(prev.map((shop: Shop) => [shop.slug, shop]));
+          for (const shop of shops) by.set(shop.slug, shop);
+          const merged = [...by.values()];
+          setRemoteShops(merged);
+          set({ serverShops: merged, shopCursor: cursor + res.shops.length, shopHasMore: res.shops.length === 20 });
         } catch {
           /* the local catalog still fills the shelves */
         }
@@ -1643,23 +1710,30 @@ const useSession = create<any>()(
         const text = normalizeHandles(String(input.text ?? "").trim(), handles);
         if (text.length < 2 || !input.image || hasProfanity(text)) return { ok: false, error: "name" };
         if (billedLength(text, handles) > 88) return { ok: false, error: "limit" };
-        const res = await publishHello({ data: { text, lang: input.lang === "ar" ? "ar" : "en", image: input.image } });
-        if (!res.ok) return res;
-        const post = {
-          id: res.id,
-          shopSlug: user.shopSlug || slugForSeller(user),
-          text,
-          lang: input.lang === "ar" ? "ar" : "en",
-          image: res.thumbUrl || res.imageUrl,
-          full: res.imageUrl,
-          at: res.at,
-          expiresAt: res.at + HELLO_WINDOW,
-          views: 0,
-          hearts: 0,
-          status: "live",
-        };
-        set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: [post, ...account.helloPosts ?? []], helloSpent: { at: Date.now(), count: res.spent } } } });
-        return { ok: true, cap: res.cap, spent: res.spent };
+        try {
+          const image = await shrinkDataUrl(String(input.image));
+          const res = await publishHello({ data: { text, lang: input.lang === "ar" ? "ar" : "en", image } });
+          if (!res.ok) return res;
+          const post = {
+            id: res.id,
+            shopSlug: user.shopSlug || slugForSeller(user),
+            text,
+            lang: input.lang === "ar" ? "ar" : "en",
+            image: res.thumbUrl || res.imageUrl,
+            full: res.imageUrl,
+            at: res.at,
+            expiresAt: res.at + HELLO_WINDOW,
+            editUntil: res.at + HELLO_EDIT,
+            views: 0,
+            hearts: 0,
+            status: "live",
+          };
+          set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: [post, ...account.helloPosts ?? []], helloSpent: { at: Date.now(), count: res.spent } } } });
+          return { ok: true, cap: res.cap, spent: res.spent };
+        } catch (error) {
+          console.error("[hello] publish request failed", error);
+          return { ok: false, error: "timeout" };
+        }
       },
       editHelloPost: async (input: any) => {
         const user = get().user;
@@ -1726,7 +1800,7 @@ const useSession = create<any>()(
         void reportTarget({ data: { targetType: "hello", targetId: String(id), reason: "hello" } });
       },
       loadHello: async (cursor = 0) => {
-        const res = await listHello({ data: { limit: 20, cursor } });
+        const res = await listHello({ data: { limit: 20, cursor, follows: get().follows ?? [], words: get().interestWords ?? [] } });
         if (res.ok) {
           const prev = cursor ? get().helloFeed ?? [] : [];
           const seen = new Set(prev.map((post: { id: string }) => post.id));
@@ -1765,10 +1839,10 @@ const useSession = create<any>()(
         }
         set({ accounts });
       },
-      setAlgoOrder: (order: any) => {
+      setAlgoOrder: async (order: any) => {
         const algoStamps = touchAlgo(get, "algoOrder");
         withBuyer(get, set, { algoOrder: algoOrder(order), algoStamps });
-        void publishAlgo(get, set);
+        return publishAlgo(get, set);
       },
       saveAlgorithm: (draft: any) => {
         const words = (draft?.words ?? []).map((word: any) => String(word).trim().toLowerCase()).filter((word: string) => word.length >= 2).slice(0, WORD_CAP);
