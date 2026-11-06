@@ -92,7 +92,7 @@ function Landing() {
               <span className="font-display" lang="en">Sign up</span>
             </span>
           </Link>
-          <Link to="/home" className="stamp-hit stamp-discover" style={{ left: "63.8%", top: "82%", width: "20.7%", height: "12.5%" }} aria-label="Discover the Souq">
+          <Link to="/home" className="stamp-hit stamp-discover" style={{ left: "63.8%", top: "82%", width: "20.7%", height: "12.5%" }} aria-label="Explore the Souq">
             <picture>
               <source srcSet="/brand/h/stamp-discover.a1727f2731.avif" type="image/avif" />
               <source srcSet="/brand/h/stamp-discover.0cc148c1e7.webp" type="image/webp" />

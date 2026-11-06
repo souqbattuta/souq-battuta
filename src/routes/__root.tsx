@@ -13,7 +13,7 @@ const FONT =
 const PAGE_COPY: Record<string, [string, string]> = {
   "/": ["Souq Battuta", "Amman first. Sellers keep the customer."],
   "/home": ["Home · Souq Battuta", "Wander the souq. Stalls chosen for you, new places, and what is near."],
-  "/discover": ["Discover · Souq Battuta", "Search stalls on Souq Battuta."],
+  "/discover": ["Explore · Souq Battuta", "Search shops on Souq Battuta."],
   "/hello": ["Hello, World! · Souq Battuta", "A daily note from the souq. Up at 12, gone at 12."],
   "/sign-in": ["Log in · Souq Battuta", "Log in to Souq Battuta as a buyer or a seller."],
   "/join": ["Create an account · Souq Battuta", "Join Souq Battuta as a buyer or a seller."],

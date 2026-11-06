@@ -131,3 +131,9 @@ button,[role=button]{cursor:pointer}html{font-family:"Source Serif 4",Noto Naskh
 .home-eyebrow,.home-kicker{color:#8a6a1f}
 .rating{display:inline-block;flex:none;vertical-align:middle;width:80px;height:16px;background:linear-gradient(90deg,#f5b700 calc(var(--r)/5*100%),#ccc 0);-webkit-mask:url(/brand/duck.svg) left center/calc(100%/5) 100% repeat-x;mask:url(/brand/duck.svg) left center/calc(100%/5) 100% repeat-x}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.algo-rank{display:inline-grid;place-items:center;min-width:2.6rem;height:2.6rem;margin-inline-end:.6rem;border-radius:999px;color:#fff;font-size:1.45rem;font-weight:700}
+.algo-name{display:flex;align-items:center}
+.algo-plain{margin:.2rem 0 0;color:#5c5346;font-size:.85rem}
+.algo-toast{margin-top:.6rem;font-weight:700}
+.algo-grip{min-width:44px;min-height:44px;touch-action:none}

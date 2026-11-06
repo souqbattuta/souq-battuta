@@ -26,7 +26,7 @@ function WelcomePage() {
     );
   }
 
-  const name = user.displayName || user.username;
+  const name = user.shopName || user.displayName || user.username;
 
   return (
     <Shell>
@@ -41,7 +41,7 @@ function WelcomePage() {
               : "You keep the customer. Orders go to your WhatsApp, and Souq Battuta does not take a cut of the sale. Grow on your own terms."
             : ar
               ? "اكتشف الدكاكين على كيفك. أنت تختار ما يظهر لك."
-              : "Discover the stalls on your terms. You decide what shows up for you."}
+              : "Explore the shops on your terms. You decide what shows up for you."}
         </p>
         {user.pendingPlan && (
           <p className="mt-4 rounded-lg border border-line bg-cream px-4 py-3 text-sm text-ink">
@@ -66,7 +66,7 @@ function WelcomePage() {
             search={{ item: "", tab: "edit", order: "", note: "" }}
             className="mt-6 inline-flex h-12 items-center rounded-md bg-ink px-5 font-semibold text-cream hover:bg-[#152648]"
           >
-            {ar ? "افتح المكتب" : "Open your desk"}
+            {ar ? "افتح دكانك" : "Open your shop"}
           </Link>
         ) : (
           <Link to="/home" className="mt-6 inline-flex h-12 items-center rounded-md bg-ink px-5 font-semibold text-cream hover:bg-[#152648]">

@@ -212,8 +212,8 @@ export function SiteHeader({
               <div className="banner-menu" role="menu">
                 {user.role === "seller" ? (
                   <Link to="/seller" search={{ item: "", tab: "orders", order: "", note: "" }} role="menuitem">
-                    <span className="font-arabic">المكتب</span>
-                    <span>Desk</span>
+                    <span className="font-arabic">دكاني</span>
+                    <span>My shop</span>
                   </Link>
                 ) : (
                   <>

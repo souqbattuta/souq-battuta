@@ -31,6 +31,7 @@ const profileSchema = z
     promoCode: z.string().trim().max(40).optional(),
     areaLat: z.number().finite().optional(),
     areaLng: z.number().finite().optional(),
+    shopName: z.string().trim().min(2).max(80).optional(),
     referral: z.string().trim().max(40).optional(),
     billingPeriod: z.enum(["monthly", "yearly"]).optional(),
     paymentStatus: z.enum(["pending", "active"]).optional(),
@@ -53,6 +54,10 @@ const pushSchema = z
     stallDays: z.string().trim().max(40).optional(),
     stallBio: z.string().trim().max(500).optional(),
     stallBioAr: z.string().trim().max(500).optional(),
+    findWords: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+    droppedKeywords: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+    stallAvatar: z.string().trim().max(500).optional(),
+    stallCover: z.string().trim().max(500).optional(),
   });
 
 type Profile = z.infer<typeof profileSchema>;
@@ -174,11 +179,22 @@ async function openSession(sql: Awaited<ReturnType<typeof db>>, s: Kit, phone: s
   setSessionCookie(s, token);
 }
 
+function canonPhone(raw: string) {
+  let text = String(raw ?? "").trim().replace(/[\s().-]/g, "");
+  if (text.startsWith("00")) text = `+${text.slice(2)}`;
+  const digits = text.startsWith("+") ? text.slice(1).replace(/\D/g, "") : text.replace(/\D/g, "");
+  if (/^9620?7\d{8}$/.test(digits)) return `+962${digits.slice(-9)}`;
+  if (/^07\d{8}$/.test(digits)) return `+962${digits.slice(1)}`;
+  if (/^7\d{8}$/.test(digits)) return `+962${digits}`;
+  return digits ? `+${digits}` : "";
+}
+
 function publicProfile(phone: string, data: Record<string, unknown>, row: { role: string; shop_slug: string | null; plan: string | null }) {
   return {
     phone,
     username: String(data.username ?? ""),
-    displayName: String(data.displayName ?? data.username ?? ""),
+    displayName: String(data.shopName || data.displayName || data.username || ""),
+    shopName: String(data.shopName || data.displayName || ""),
     city: String(data.city ?? ""),
     bio: String(data.bio ?? ""),
     address: String(data.address ?? ""),
@@ -193,7 +209,7 @@ function publicProfile(phone: string, data: Record<string, unknown>, row: { role
     categories: Array.isArray(data.categories) ? data.categories : undefined,
     areaLat: typeof data.areaLat === "number" ? data.areaLat : undefined,
     areaLng: typeof data.areaLng === "number" ? data.areaLng : undefined,
-    joinedAt: Date.now(),
+    joinedAt: typeof data.joinedAt === "number" ? data.joinedAt : undefined,
     usernameHistory: [],
   };
 }
@@ -230,7 +246,8 @@ export const stageSouqSignup = createServerFn({ method: "POST" })
       profile: profileSchema,
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const s = await kit();
     const sql = await db();
     const ip = clientIp(s);
@@ -266,13 +283,20 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
       paymentRef: z.string().trim().max(80).optional(),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const sql = await db();
     const rows = await sql<{ profile: Profile }>`
       select profile from souq_pending where phone = ${data.phone} and expires_at > now()
     `;
     const profile = rows[0]?.profile;
     if (!profile) return { ok: false as const, error: "missing" as const };
+    const chosen = data.plan;
+    const paid = chosen === "basic" || chosen === "grow" || chosen === "premium";
+    if (!(paid && data.paymentStatus === "pending") && !data.promoCode) {
+      const used = await sql<{ phone: string }>`select phone from souq_trial_phones where phone = ${data.phone}`;
+      if (used[0]) return { ok: false as const, error: "trial" as const };
+    }
     const next = {
       ...profile,
       intent: "seller" as const,
@@ -280,6 +304,7 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
       promoCode: data.promoCode,
       categories: data.categories ?? profile.categories,
       displayName: data.shopName || profile.displayName,
+      shopName: data.shopName || profile.shopName || profile.displayName,
       billingPeriod: data.billingPeriod,
       paymentStatus: data.paymentStatus,
       paymentMethod: data.paymentMethod,
@@ -292,7 +317,8 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
 
 export const sendSouqOtp = createServerFn({ method: "POST" })
   .validator(z.object({ phone: z.string().trim().min(8).max(20) }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const s = await kit();
     const sql = await db();
     const ip = clientIp(s);
@@ -340,12 +366,14 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       code: z.string().trim().regex(/^\d{6}$/),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const s = await kit();
     const sql = await db();
     const ip = clientIp(s);
     if (!(await hitRate(sql, `ip:verify:${ip}`, 20, 3600))) return { ok: false as const, error: "rate" as const };
-    const testCode = data.code === "424242";
+    const allowTestOtp = !process.env.GROK_PROJECT_ID || process.env.SOUQ_ALLOW_TEST_OTP === "1";
+    const testCode = data.code === "424242" && allowTestOtp;
     const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string }>`
       select code_hash, salt, attempts, expires_at from souq_otp where phone = ${data.phone}
     `;
@@ -410,12 +438,17 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         pendingPlan = chosen;
         paymentStatus = "pending";
         planEnds = undefined;
+      } else {
+        const usedTrial = await sql<{ phone: string }>`select phone from souq_trial_phones where phone = ${data.phone}`;
+        if (usedTrial[0]) return { ok: false as const, error: "trial" as const };
       }
       slug = slug ?? shopSlugFor(data.phone);
     }
+    const shopName = profile.shopName || profile.displayName || profile.username;
     const safe = {
       username: profile.username,
-      displayName: profile.displayName || profile.username,
+      displayName: shopName,
+      shopName,
       city: profile.city ?? "",
       bio: profile.bio ?? "",
       address: profile.address ?? "",
@@ -429,6 +462,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       billingPeriod,
       paymentRef: profile.paymentRef,
       paymentMethod: profile.paymentMethod,
+      joinedAt: Date.now(),
     };
     if (!existing) {
       await sql`
@@ -455,19 +489,27 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     }
     if (role === "seller" && slug) {
       await sql`
-        insert into souq_shops (slug, owner_phone, name, area, plan)
-        values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"})
+        insert into souq_shops (slug, owner_phone, name, area, plan, category)
+        values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""})
         on conflict (slug) do update set
           owner_phone = excluded.owner_phone,
           name = excluded.name,
           area = excluded.area,
           plan = excluded.plan,
+          category = excluded.category,
           updated_at = now()
       `;
       await sql`
         insert into souq_views (shop_slug) values (${slug})
         on conflict (shop_slug) do nothing
       `;
+      if (plan === "free" && paymentStatus === "active" && planEnds) {
+        await sql`
+          insert into souq_trial_phones (phone, trial_start, trial_end)
+          values (${data.phone}, now(), to_timestamp(${Math.floor(planEnds / 1000)}))
+          on conflict (phone) do nothing
+        `;
+      }
     }
     await sql`delete from souq_otp where phone = ${data.phone}`;
     await sql`delete from souq_pending where phone = ${data.phone}`;
@@ -484,7 +526,8 @@ export const claimSouq = createServerFn({ method: "POST" })
       asRole: z.enum(["buyer", "seller"]).optional(),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const s = await kit();
     const sql = await db();
     const ip = clientIp(s);
@@ -526,6 +569,31 @@ export const signOutSouq = createServerFn({ method: "POST" }).handler(async () =
   return { ok: true as const };
 });
 
+type AlgoField = { value: string[]; updatedAt: number };
+type AlgoBox = {
+  interestWords?: AlgoField;
+  algoOrder?: AlgoField;
+  mutedWords?: AlgoField;
+  mutedStalls?: AlgoField;
+};
+
+function readAlgo(data: Record<string, unknown>) {
+  const box = (data.algoFields ?? {}) as AlgoBox;
+  const field = (key: keyof AlgoBox, legacy: unknown) => box[key]?.value ?? (Array.isArray(legacy) ? (legacy as string[]) : []);
+  return {
+    interestWords: field("interestWords", data.interestWords),
+    algoOrder: field("algoOrder", data.algoOrder),
+    mutedWords: field("mutedWords", data.mutedWords),
+    mutedStalls: field("mutedStalls", data.mutedStalls),
+    algoStamps: {
+      interestWords: box.interestWords?.updatedAt ?? 0,
+      algoOrder: box.algoOrder?.updatedAt ?? 0,
+      mutedWords: box.mutedWords?.updatedAt ?? 0,
+      mutedStalls: box.mutedStalls?.updatedAt ?? 0,
+    },
+  };
+}
+
 export const getSouqMe = createServerFn({ method: "GET" }).handler(async () => {
   const sql = await db();
   const phone = await sessionPhone(sql);
@@ -540,10 +608,11 @@ export const getSouqMe = createServerFn({ method: "GET" }).handler(async () => {
         select views, review_count, order_count from souq_views where shop_slug = ${account.shop_slug}
       `
     : [];
-  return {
+    return {
     ok: true as const,
     account: {
       ...publicProfile(phone, account.data ?? {}, account),
+      ...readAlgo(account.data ?? {}),
       stallViews: Number(counts[0]?.views ?? 0),
       orders: orders.map((order) => ({
         id: order.id,
@@ -604,23 +673,74 @@ export const pushSouq = createServerFn({ method: "POST" })
     const account = await loadAccount(sql, phone);
     if (!account) return { ok: false as const, error: "auth" as const };
     const next = { ...(account.data ?? {}) };
-    for (const key of ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone"] as const) {
+    for (const key of ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone", "interestWords", "algoOrder", "mutedWords", "mutedStalls", "algoUpdatedAt"] as const) {
       delete next[key];
     }
     Object.assign(next, parsed.data);
+    for (const key of ["stallAvatar", "stallCover"] as const) {
+      const value = next[key];
+      if (typeof value === "string" && value.startsWith("data:")) delete next[key];
+    }
     await sql`
       update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${phone}
     `;
     if (account.shop_slug) {
+      const categories = Array.isArray(next.categories) ? (next.categories as string[]) : [];
+      const words = Array.isArray(next.findWords) ? (next.findWords as string[]) : [];
+      const avatar = typeof next.stallAvatar === "string" ? next.stallAvatar : null;
+      const cover = typeof next.stallCover === "string" ? next.stallCover : null;
       await sql`
         update souq_shops set
-          name = ${String(next.displayName || next.username || account.shop_slug)},
+          name = ${String(next.displayName || next.shopName || next.username || account.shop_slug)},
           area = ${String(next.city ?? "")},
+          category = ${categories[0] ?? ""},
+          keywords = ${JSON.stringify(words)}::jsonb,
+          bio = ${String(next.stallBio || next.bio || "")},
+          avatar_url = ${avatar},
+          cover_url = ${cover},
+          thumb_url = ${avatar},
           updated_at = now()
         where slug = ${account.shop_slug} and owner_phone = ${phone}
       `;
     }
     return { ok: true as const };
+  });
+
+const algoField = z.object({
+  value: z.array(z.string().trim().min(1).max(80)).max(40),
+  updatedAt: z.number().int().nonnegative(),
+});
+
+export const syncSouqAlgo = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      interestWords: algoField.optional(),
+      algoOrder: algoField.optional(),
+      mutedWords: algoField.optional(),
+      mutedStalls: algoField.optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account) return { ok: false as const, error: "auth" as const };
+    const blob = { ...(account.data ?? {}) } as Record<string, unknown>;
+    const box = { ...((blob.algoFields ?? {}) as AlgoBox) };
+    for (const key of ["interestWords", "algoOrder", "mutedWords", "mutedStalls"] as const) {
+      const incoming = data[key];
+      if (!incoming) continue;
+      const prev = box[key]?.updatedAt ?? 0;
+      if (incoming.updatedAt >= prev) box[key] = incoming;
+    }
+    blob.algoFields = box;
+    delete blob.interestWords;
+    delete blob.algoOrder;
+    delete blob.mutedWords;
+    delete blob.mutedStalls;
+    await sql`update souq_accounts set data = ${JSON.stringify(blob)}::jsonb, updated_at = now() where phone = ${phone}`;
+    return { ok: true as const, algo: readAlgo(blob) };
   });
 
 export const patchSouqOrder = createServerFn({ method: "POST" })
@@ -727,7 +847,8 @@ export const submitSouqPayment = createServerFn({ method: "POST" })
 
 export const confirmSouqPayment = createServerFn({ method: "POST" })
   .validator(z.object({ phone: z.string().trim().min(8).max(20) }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data: raw }) => {
+    const data = { ...raw, phone: canonPhone(raw.phone) };
     const sql = await db();
     const admin = await sessionPhone(sql);
     const admins = (process.env.SOUQ_ADMIN_PHONES ?? "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -739,8 +860,7 @@ export const confirmSouqPayment = createServerFn({ method: "POST" })
     const days = blob.billingPeriod === "yearly" ? 365 : 30;
     const oldEnd = typeof blob.planEnds === "number" ? blob.planEnds : 0;
     const now = Date.now();
-    const grace = 5 * 86400000;
-    const base = oldEnd > 0 && oldEnd + grace >= now ? oldEnd : now;
+    const base = oldEnd > 0 ? oldEnd : now;
     const planEnds = base + days * 86400000;
     const { pendingPlan: _pending, ...rest } = blob;
     const next = { ...rest, planEnds, paymentStatus: "active", sellerPlan: plan };
@@ -796,23 +916,376 @@ export const saveSouqListing = createServerFn({ method: "POST" })
   });
 
 export const uploadListingImage = createServerFn({ method: "POST" })
-  .validator(z.object({ dataUrl: z.string().max(1_800_000) }))
+  .validator(z.object({ dataUrl: z.string().max(7_000_000), kind: z.enum(["listing", "hello"]).optional() }))
+  .handler(async ({ data }) => storeImage(data.dataUrl, data.kind ?? "listing"));
+
+const HELLO_CAP: Record<string, number> = { free: 1, basic: 2, grow: 3, premium: 5 };
+
+async function storeImage(dataUrl: string, kind: "listing" | "hello") {
+  const s = await kit();
+  const sql = await db();
+  const phone = await sessionPhone(sql);
+  if (!phone) return { ok: false as const, error: "auth" as const };
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) return { ok: false as const, error: "type" as const };
+  const bytes = Buffer.from(match[2], "base64");
+  if (bytes.length > 5_000_000) return { ok: false as const, error: "size" as const };
+  const longest = kind === "hello" ? 1080 : 1600;
+  let main = bytes;
+  let thumb = bytes;
+  let type = match[1];
+  try {
+    const sharp = (await import("sharp")).default;
+    const picture = sharp(bytes, { failOn: "none" }).rotate();
+    main = await picture.clone().resize({ width: longest, height: longest, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
+    thumb = await picture.clone().resize({ width: 400, height: 400, fit: "cover" }).webp({ quality: 76 }).toBuffer();
+    type = "image/webp";
+  } catch {
+    return { ok: false as const, error: "type" as const };
+  }
+  const id = s.randomBytes(8).toString("hex");
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    const { put } = await import("@vercel/blob");
+    const folder = `${kind}/${sha256(s, phone)}`;
+    const big = await put(`${folder}/${id}.webp`, main, { access: "public", token, contentType: type });
+    const small = await put(`${folder}/${id}-thumb.webp`, thumb, { access: "public", token, contentType: type });
+    return { ok: true as const, url: big.url, thumbUrl: small.url };
+  }
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const dir = "public/media";
+  await mkdir(dir, { recursive: true });
+  await writeFile(`${dir}/${id}.webp`, main);
+  await writeFile(`${dir}/${id}-thumb.webp`, thumb);
+  return { ok: true as const, url: `/media/${id}.webp`, thumbUrl: `/media/${id}-thumb.webp` };
+}
+
+export const publishHello = createServerFn({ method: "POST" })
+  .validator(z.object({ text: z.string().trim().min(2).max(88), lang: z.enum(["en", "ar"]).optional(), image: z.string().min(8) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account || account.role !== "seller" || !account.shop_slug) return { ok: false as const, error: "auth" as const };
+    const plan = account.plan || "free";
+    const blob = account.data ?? {};
+    const ends = typeof blob.planEnds === "number" ? blob.planEnds : 0;
+    const pending = blob.paymentStatus === "pending" && blob.pendingPlan && !ends;
+    const graceOver = Boolean(ends) && Date.now() > ends + (plan === "free" ? 0 : 5 * 86400000);
+    if (pending || graceOver) return { ok: false as const, error: "paused" as const };
+    const cap = HELLO_CAP[plan] ?? 1;
+    const spentRows = await sql<{ n: number }>`
+      select count(*)::int as n from souq_hello_posts
+      where owner_phone = ${phone} and created_at > now() - interval '24 hours'
+    `;
+    const spent = Number(spentRows[0]?.n ?? 0);
+    if (spent >= cap) return { ok: false as const, error: "limit" as const, spent, cap };
+    let imageUrl = data.image;
+    let thumbUrl = data.image;
+    if (data.image.startsWith("data:")) {
+      const stored = await storeImage(data.image, "hello");
+      if (!stored.ok) return stored;
+      imageUrl = stored.url;
+      thumbUrl = stored.thumbUrl;
+    }
+    const s = await kit();
+    const id = `hw-${s.randomBytes(6).toString("hex")}`;
+    await sql`
+      insert into souq_hello_posts (id, shop_slug, owner_phone, text, lang, image_url, thumb_url, expires_at, edit_until)
+      values (${id}, ${account.shop_slug}, ${phone}, ${data.text}, ${data.lang ?? "en"}, ${imageUrl}, ${thumbUrl}, now() + interval '24 hours', now() + interval '15 minutes')
+    `;
+    return { ok: true as const, id, spent: spent + 1, cap, imageUrl, thumbUrl, at: Date.now() };
+  });
+
+export const editHello = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(3).max(80), text: z.string().trim().min(2).max(88), image: z.string().optional() }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const rows = await sql<{ edit_until: string; image_url: string | null; thumb_url: string | null }>`
+      select edit_until, image_url, thumb_url from souq_hello_posts
+      where id = ${data.id} and owner_phone = ${phone} and status = 'live'
+    `;
+    const post = rows[0];
+    if (!post) return { ok: false as const, error: "missing" as const };
+    if (new Date(post.edit_until).getTime() < Date.now()) return { ok: false as const, error: "locked" as const };
+    let imageUrl = post.image_url;
+    let thumbUrl = post.thumb_url;
+    if (data.image?.startsWith("data:")) {
+      const stored = await storeImage(data.image, "hello");
+      if (!stored.ok) return stored;
+      imageUrl = stored.url;
+      thumbUrl = stored.thumbUrl;
+    }
+    await sql`
+      update souq_hello_posts set text = ${data.text}, image_url = ${imageUrl}, thumb_url = ${thumbUrl}
+      where id = ${data.id} and owner_phone = ${phone}
+    `;
+    return { ok: true as const, imageUrl, thumbUrl };
+  });
+
+export const deleteHelloPost = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(3).max(80) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    await sql`update souq_hello_posts set status = 'removed' where id = ${data.id} and owner_phone = ${phone}`;
+    const spentRows = await sql<{ n: number }>`
+      select count(*)::int as n from souq_hello_posts
+      where owner_phone = ${phone} and created_at > now() - interval '24 hours'
+    `;
+    const account = await loadAccount(sql, phone);
+    const cap = HELLO_CAP[account?.plan || "free"] ?? 1;
+    return { ok: true as const, spent: Number(spentRows[0]?.n ?? 0), cap };
+  });
+
+export const helloQuota = createServerFn({ method: "GET" }).handler(async () => {
+  const sql = await db();
+  const phone = await sessionPhone(sql);
+  if (!phone) return { ok: false as const, error: "auth" as const };
+  const account = await loadAccount(sql, phone);
+  if (!account || account.role !== "seller") return { ok: false as const, error: "auth" as const };
+  const plan = account.plan || "free";
+  const cap = HELLO_CAP[plan] ?? 1;
+  const spentRows = await sql<{ n: number }>`
+    select count(*)::int as n from souq_hello_posts
+    where owner_phone = ${phone} and created_at > now() - interval '24 hours'
+  `;
+  const rows = await sql<{
+    id: string;
+    shop_slug: string;
+    text: string;
+    lang: string;
+    image_url: string | null;
+    thumb_url: string | null;
+    created_at: string;
+    expires_at: string;
+    edit_until: string;
+    views: number;
+    hearts: number;
+    status: string;
+  }>`
+    select id, shop_slug, text, lang, image_url, thumb_url, created_at, expires_at, edit_until, views, hearts, status
+    from souq_hello_posts
+    where owner_phone = ${phone} and status <> 'removed' and created_at > now() - interval '30 days'
+    order by created_at desc
+    limit 40
+  `;
+  return {
+    ok: true as const,
+    spent: Number(spentRows[0]?.n ?? 0),
+    cap,
+    posts: rows.map((row) => ({
+      id: row.id,
+      shopSlug: row.shop_slug,
+      text: row.text,
+      lang: row.lang === "ar" ? "ar" as const : "en" as const,
+      image: row.thumb_url || row.image_url || "",
+      full: row.image_url || row.thumb_url || "",
+      at: new Date(row.created_at).getTime(),
+      expiresAt: new Date(row.expires_at).getTime(),
+      editUntil: new Date(row.edit_until).getTime(),
+      views: Number(row.views ?? 0),
+      hearts: Number(row.hearts ?? 0),
+      status: row.status === "hidden" ? "hidden" as const : "live" as const,
+    })),
+  };
+});
+
+export const listPublicShops = createServerFn({ method: "GET" })
+  .validator(z.object({ cursor: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(20).optional() }).optional())
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const limit = data?.limit ?? 20;
+    const cursor = data?.cursor ?? 0;
+    const nowMs = Date.now();
+    const rows = await sql<{
+      slug: string;
+      name: string;
+      area: string;
+      plan: string;
+      category: string;
+      keywords: unknown;
+      bio: string;
+      avatar_url: string | null;
+      cover_url: string | null;
+      thumb_url: string | null;
+      created_at: string;
+    }>`
+      select s.slug, s.name, s.area, s.plan, s.category, s.keywords, s.bio, s.avatar_url, s.cover_url, s.thumb_url, s.created_at
+      from souq_shops s
+      join souq_accounts a on a.phone = s.owner_phone
+      where s.hidden = false
+        and (
+          coalesce(nullif(a.data->>'planEnds', '')::bigint, 0) = 0
+          or (a.data->>'planEnds')::bigint > ${nowMs}
+          or (s.plan <> 'free' and (a.data->>'planEnds')::bigint + ${5 * 86400000} > ${nowMs})
+        )
+      order by s.created_at desc
+      limit ${limit} offset ${cursor}
+    `;
+    const slugs = new Set(rows.map((row) => row.slug));
+    const listings = await sql<{ id: string; shop_slug: string; name: string; price: string | null; image_url: string | null; thumb_url: string | null }>`
+      select id, shop_slug, name, price, image_url, thumb_url from souq_listings
+      order by created_at desc
+      limit 400
+    `;
+    return {
+      ok: true as const,
+      shops: rows.map((row) => {
+        const rawWords = Array.isArray(row.keywords)
+          ? row.keywords
+          : typeof row.keywords === "string"
+            ? (() => { try { return JSON.parse(row.keywords as string); } catch { return []; } })()
+            : [];
+        const words = (Array.isArray(rawWords) ? rawWords : []).filter((word): word is string => typeof word === "string");
+        const items = listings.filter((item) => item.shop_slug === row.slug).slice(0, 12);
+        const photo = row.thumb_url || row.avatar_url || row.cover_url || items[0]?.thumb_url || items[0]?.image_url || "";
+        return {
+          slug: row.slug,
+          name: row.name,
+          area: row.area,
+          plan: row.plan,
+          category: row.category || "misc",
+          keywords: words,
+          bio: row.bio,
+          avatar: photo,
+          cover: row.cover_url || photo,
+          createdAt: new Date(row.created_at).getTime(),
+          products: items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price == null ? 0 : Number(item.price),
+            image: item.thumb_url || item.image_url || "",
+            full: item.image_url || item.thumb_url || "",
+          })),
+        };
+      }),
+    };
+  });
+
+export const listHello = createServerFn({ method: "GET" })
+  .validator(z.object({ cursor: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(20).optional() }).optional())
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const limit = data?.limit ?? 20;
+    const cursor = data?.cursor ?? 0;
+    const rows = await sql<{
+      id: string;
+      shop_slug: string;
+      text: string;
+      lang: string;
+      image_url: string | null;
+      thumb_url: string | null;
+      created_at: string;
+      expires_at: string;
+      views: number;
+      hearts: number;
+    }>`
+      select id, shop_slug, text, lang, image_url, thumb_url, created_at, expires_at, views, hearts
+      from souq_hello_posts
+      where status = 'live' and expires_at > now()
+      order by created_at desc
+      limit ${limit} offset ${cursor}
+    `;
+    return {
+      ok: true as const,
+      posts: rows.map((row) => ({
+        id: row.id,
+        shopSlug: row.shop_slug,
+        text: row.text,
+        lang: row.lang === "ar" ? "ar" : "en",
+        image: row.thumb_url || row.image_url || "",
+        full: row.image_url || row.thumb_url || "",
+        at: new Date(row.created_at).getTime(),
+        expiresAt: new Date(row.expires_at).getTime(),
+        views: Number(row.views ?? 0),
+        hearts: Number(row.hearts ?? 0),
+        status: "live" as const,
+      })),
+    };
+  });
+
+export const reportTarget = createServerFn({ method: "POST" })
+  .validator(z.object({
+    targetType: z.enum(["hello", "shop"]),
+    targetId: z.string().trim().min(2).max(80),
+    reason: z.string().trim().max(240).optional(),
+  }))
   .handler(async ({ data }) => {
     const s = await kit();
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
-    const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(data.dataUrl);
-    if (!match) return { ok: false as const, error: "type" as const };
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) return { ok: false as const, error: "storage" as const };
-    const bytes = Buffer.from(match[2], "base64");
-    if (bytes.length > 1_500_000) return { ok: false as const, error: "size" as const };
-    const { put } = await import("@vercel/blob");
-    const blob = await put(`listings/${sha256(s, phone)}/${s.randomBytes(8).toString("hex")}`, bytes, {
-      access: "public",
-      token,
-      contentType: match[1],
-    });
-    return { ok: true as const, url: blob.url };
+    const id = `rp-${s.randomBytes(6).toString("hex")}`;
+    await sql`
+      insert into souq_reports (id, target_type, target_id, reporter_phone, reason)
+      values (${id}, ${data.targetType}, ${data.targetId}, ${phone}, ${data.reason ?? ""})
+      on conflict (target_type, target_id, reporter_phone) do nothing
+    `;
+    const counts = await sql<{ n: number }>`
+      select count(distinct reporter_phone)::int as n from souq_reports
+      where target_type = ${data.targetType} and target_id = ${data.targetId} and status = 'open'
+    `;
+    if (Number(counts[0]?.n ?? 0) >= 3) {
+      if (data.targetType === "hello") await sql`update souq_hello_posts set status = 'hidden' where id = ${data.targetId}`;
+      else await sql`update souq_shops set hidden = true where slug = ${data.targetId}`;
+    }
+    return { ok: true as const };
   });
+
+async function requireAdmin(sql: Awaited<ReturnType<typeof db>>) {
+  const phone = await sessionPhone(sql);
+  const admins = (process.env.SOUQ_ADMIN_PHONES ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+  if (!phone || !admins.includes(phone)) return null;
+  return phone;
+}
+
+export const adminReports = createServerFn({ method: "GET" }).handler(async () => {
+  const sql = await db();
+  if (!(await requireAdmin(sql))) return { ok: false as const, error: "auth" as const };
+  const rows = await sql<{
+    id: string;
+    target_type: string;
+    target_id: string;
+    reporter_phone: string;
+    reason: string;
+    status: string;
+    note: string;
+    created_at: string;
+  }>`
+    select id, target_type, target_id, reporter_phone, reason, status, note, created_at
+    from souq_reports order by created_at desc limit 100
+  `;
+  return { ok: true as const, reports: rows };
+});
+
+export const adminModerate = createServerFn({ method: "POST" })
+  .validator(z.object({
+    targetType: z.enum(["hello", "shop"]),
+    targetId: z.string().trim().min(2).max(80),
+    action: z.enum(["hide", "remove", "keep"]),
+    note: z.string().trim().max(240).optional(),
+  }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    if (!(await requireAdmin(sql))) return { ok: false as const, error: "auth" as const };
+    const status = data.action === "keep" ? "kept" : data.action === "remove" ? "removed" : "hidden";
+    await sql`
+      update souq_reports set status = ${status}, note = ${data.note ?? ""}
+      where target_type = ${data.targetType} and target_id = ${data.targetId}
+    `;
+    if (data.targetType === "hello") {
+      const next = data.action === "keep" ? "live" : data.action === "remove" ? "removed" : "hidden";
+      await sql`update souq_hello_posts set status = ${next} where id = ${data.targetId}`;
+    } else if (data.action === "keep") {
+      await sql`update souq_shops set hidden = false where slug = ${data.targetId}`;
+    } else {
+      await sql`update souq_shops set hidden = true where slug = ${data.targetId}`;
+    }
+    return { ok: true as const };
+  });
+

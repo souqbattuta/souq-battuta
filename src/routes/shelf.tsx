@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CATEGORIES, type CategoryId } from "@/lib/data";
 import { directoryShops, livePromotions, useSession } from "@/lib/session";
-import { rankForYou } from "@/lib/shelves";
+import { newPlacesShelf, rankForYou, useTieSeed } from "@/lib/shelves";
 import { Shell } from "@/components/site-header";
 import { PromoViewTracker, ShopTiles } from "@/components/shop-shelf";
 import { OptImg } from "@/components/opt-img";
@@ -15,24 +15,13 @@ export const Route = createFileRoute("/shelf")({
   component: ShelfPage,
 });
 
-const MONTH: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-function sinceStamp(since?: string) {
-  if (!since) return 0;
-  const year = Number(since.match(/20\d{2}/)?.[0] ?? 0);
-  const month = MONTH[since.toLowerCase().slice(0, 3)] ?? 0;
-  return year * 12 + month;
-}
-
 function ShelfPage() {
   const { kind, aisle } = Route.useSearch();
   const lang = useSession((s) => s.lang);
   const ar = lang === "ar";
   const user = useSession((s) => s.user);
   const accounts = useSession((s) => s.accounts);
+  const serverShops = useSession((s) => s.serverShops);
   const words = useSession((s) => s.interestWords);
   const favorites = useSession((s) => s.favorites);
   const bookmarks = useSession((s) => s.bookmarks);
@@ -54,12 +43,17 @@ function ShelfPage() {
     const cat = CATEGORIES.find((item) => item.id === aisle);
     if (!cat || cat.id === "all") return all;
     return all.filter((shop) => shop.category === (cat.id as CategoryId));
-  }, [accounts, aisle]);
+  }, [accounts, aisle, serverShops]);
+  const tieSeed = useTieSeed();
+  const browsedCategories = useMemo(() => {
+    const by = new Map(catalog.map((shop) => [shop.slug, shop.category]));
+    return [...new Set(visited.map((slug) => by.get(slug)).filter((id): id is string => Boolean(id)))];
+  }, [catalog, visited]);
   const forYou = useMemo(
-    () => rankForYou(catalog, { words, favorites, bookmarks, visited, visits, follows, ordered: orderSlugs, shared, order: algo, referred: user?.referredBy, mutedWords, mutedStalls }),
-    [catalog, words, favorites, bookmarks, visited, visits, follows, orderSlugs, shared, algo, user?.referredBy, mutedWords, mutedStalls],
+    () => rankForYou(catalog, { words, favorites, bookmarks, visited, visits, follows, ordered: orderSlugs, shared, order: algo, referred: user?.referredBy, mutedWords, mutedStalls, tieSeed, browsedCategories }),
+    [catalog, words, favorites, bookmarks, visited, visits, follows, orderSlugs, shared, algo, user?.referredBy, mutedWords, mutedStalls, tieSeed, browsedCategories],
   );
-  const newest = useMemo(() => [...catalog].sort((a, b) => sinceStamp(b.since) - sinceStamp(a.since)), [catalog]);
+  const newest = useMemo(() => newPlacesShelf(catalog), [catalog]);
   const waTaps = useSession((s) => s.waTaps) ?? {};
   const asked = useMemo(
     () => [...catalog].filter((shop) => (shop.waOrders ?? 0) + (waTaps[shop.slug] ?? 0) > 0).sort((a, b) => ((b.waOrders ?? 0) + (waTaps[b.slug] ?? 0)) - ((a.waOrders ?? 0) + (waTaps[a.slug] ?? 0))),
@@ -77,6 +71,9 @@ function ShelfPage() {
     : kind === "asked" ? (ar ? "الأكثر شعبية" : "Most Popular")
     : kind === "viewed" ? (ar ? "الأكثر مشاهدة" : "Most Viewed")
     : ar ? "إلك" : "For You";
+  const full = kind === "new" ? newest : kind === "asked" ? asked : kind === "viewed" ? viewed : forYou;
+  const [shown, setShown] = useState(20);
+  const page = full.slice(0, shown);
 
   return (
     <Shell>
@@ -101,7 +98,14 @@ function ShelfPage() {
             ))}
           </div>
         ) : (
-          <ShopTiles shelf={`more-${kind}-${aisle}`} shops={kind === "new" ? newest : kind === "asked" ? asked : kind === "viewed" ? viewed : forYou} ar={ar} />
+          <>
+            <ShopTiles shelf={`more-${kind}-${aisle}`} shops={page} ar={ar} />
+            {shown < full.length && (
+              <button type="button" className="shelf-more" onClick={() => setShown((n) => n + 20)}>
+                {ar ? "المزيد" : "More"}
+              </button>
+            )}
+          </>
         )}
       </main>
     </Shell>

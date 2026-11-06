@@ -339,6 +339,7 @@ export const EXTRA_SHOPS: Shop[] = [
   {
     slug: "paper-stall",
     name: "Paper Stall",
+    demo: true,
     nameAr: "دكان الورق",
     area: "Jabal Amman",
     areaAr: "جبل عمّان",

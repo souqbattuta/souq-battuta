@@ -11,6 +11,7 @@ import { AddressDialog } from "@/components/location-picker";
 import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
+import { AnimalRule } from "@/components/animal-rule";
 
 function optionNote(option: { reason?: "unavailable" | "stock" | "sold"; back?: string }, ar: boolean) {
   const reason = { unavailable: ["Unavailable", "غير متاح"], stock: ["Out of stock", "نفدت الكمية"], sold: ["Sold out", "تم البيع"] }[option.reason ?? "sold"];
@@ -955,6 +956,7 @@ function BasicShop({ shop }: { shop: Shop }) {
             {(shop.bio || shop.bioAr) && (
               <p className="mt-4 text-sm leading-relaxed text-mute">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
             )}
+            <div className="mt-4"><AnimalRule ar={ui.lang === "ar"} /></div>
             <SellerNameNote slug={shop.slug} />
             {shop.socials && shop.socials.length > 0 && (
               <div className="mt-4 flex gap-2">
@@ -1313,6 +1315,7 @@ function GrowShop({ shop }: { shop: Shop }) {
             <div className="mt-5 rounded-xl bg-cream px-4 py-4 ring-1 ring-line">
               <p className="text-xs font-semibold tracking-[0.16em] text-ink">{ar ? "عن الدكان" : "ABOUT"}</p>
               <p className="mt-2 text-sm leading-relaxed text-ink">{ar ? shop.bioAr : shop.bio}</p>
+              <div className="mt-3"><AnimalRule ar={ar} /></div>
             </div>
             <SellerNameNote slug={shop.slug} />
             {shop.socials && (
@@ -1654,6 +1657,7 @@ function PremiumShop({ shop }: { shop: Shop }) {
         </div>
         <StallNote shop={shop} lang={ui.lang} />
         <p className="mt-6 max-w-2xl text-base leading-relaxed">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
+        <div className="mt-4 max-w-2xl"><AnimalRule ar={ui.lang === "ar"} /></div>
         <SellerNameNote slug={shop.slug} />
         {shop.keywords && (
           <div className="mt-4 flex flex-wrap gap-2">

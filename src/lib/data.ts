@@ -1,4 +1,4 @@
-import { EXTRA_SHOPS } from "./extra-stalls";
+import { EXTRA_SHOPS } from "./extra-stalls.ts";
 
 export type PlanId = "free" | "basic" | "grow" | "premium";
 export type CategoryId =
@@ -83,6 +83,7 @@ export type Shop = {
   handoff?: "delivery" | "pickup" | "both";
   keywords?: string[];
   since?: string;
+  joinedAt?: number;
   campaign?: { code: string; progress: string };
   products: Product[];
   reviews?: Review[];
@@ -98,6 +99,9 @@ export type Shop = {
   /** Other sellers may message this stall inside Souq Battuta. */
   allowSellerMail?: boolean;
   km: number;
+  createdAt?: number;
+  demo?: boolean;
+  hidden?: boolean;
 };
 
 export const PLANS: Record<
@@ -144,7 +148,7 @@ export const PLANS: Record<
     invoice: false,
     photo: false,
     customTemplate: false,
-    blurb: "A stall with a duck. Five items. Inquiry on WhatsApp. No Open/Closed, no views, no stamp.",
+    blurb: "A shop with a duck. Five items. Inquiry on WhatsApp. No Open/Closed, no views, no stamp.",
     blurbAr: "دكان مع البطة. خمسة أصناف. استفسار واتساب. بلا مفتوح/مغلق وبلا ختم.",
   },
   basic: {
@@ -210,7 +214,7 @@ export const PLANS: Record<
     invoice: true,
     photo: true,
     customTemplate: true,
-    blurb: "Navy crown, 100 items, one main photo and 5 sub photos, search on the stall, and sizes or colors you name yourself.",
+    blurb: "Navy crown, 100 items, one main photo and 5 sub photos, search on the shop, and sizes or colors you name yourself.",
     blurbAr: "تاج كحلي، 100 صنف، صورة رئيسية و٥ صور فرعية، بحث في الدكان، ومقاسات أو ألوان تسميها أنت.",
   },
 };
@@ -745,6 +749,25 @@ export const SHOPS: Shop[] = [
   },
   ...EXTRA_SHOPS,
 ];
+
+const OPENED_MONTH: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/** One real timestamp per shop. Ranking reads createdAt only, never the month name. */
+function openedStamp(since?: string) {
+  const year = Number(since?.match(/20\d{2}/)?.[0] ?? 0);
+  if (!year) return Date.UTC(2024, 0, 1);
+  const month = OPENED_MONTH[since?.toLowerCase().replace(/[^a-z]/g, "").slice(0, 3) ?? ""];
+  if (month == null) return Date.UTC(year, 0, 1);
+  const day = year === 2026 && month === 9 ? 18 : 1;
+  return Date.UTC(year, month, day);
+}
+
+for (const shop of SHOPS) {
+  if (!shop.createdAt) shop.createdAt = openedStamp(shop.since);
+}
 
 export function shopBySlug(slug: string) {
   return SHOPS.find((s) => s.slug === slug);

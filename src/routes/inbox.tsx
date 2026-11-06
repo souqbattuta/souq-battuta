@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SHOPS } from "@/lib/data";
-import { shopMuted } from "@/lib/shelves";
+import { hasWord, shopMuted } from "@/lib/shelves";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
@@ -36,7 +36,7 @@ function InboxPage() {
     const blob = [shop.name, shop.nameAr, ...(shop.keywords ?? []), ...shop.products.flatMap((product) => [product.name, product.nameAr])]
       .join(" ")
       .toLowerCase();
-    return alertWords.some((word) => blob.includes(word)) && !shopMuted(shop, mutedWords, mutedStalls);
+    return alertWords.some((word) => hasWord(blob, word)) && !shopMuted(shop, mutedWords, mutedStalls);
   });
 
   return (

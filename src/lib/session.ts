@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { HELLO_CAP, ammanDay, billedLength, normalizeHandles, toHandle } from "./hello";
-import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, shopMuted, shopText } from "./shelves";
+import { HELLO_CAP, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
+import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, hasWord, shopMuted, shopText } from "./shelves";
 export type BookmarkList = any;
 export type BuyerAccount = any;
 export type FollowedList = any;
@@ -12,9 +12,9 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, patchSouqOrder, placeSouqOrder, recordShopView, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, deleteHelloPost, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
-import { PLANS, SHOPS } from "./data";
+import { PLANS, SHOPS, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
@@ -160,21 +160,83 @@ function livePromotions(accounts: any) {
 }
 function billingPhase(account: any) {
   if (!account) return "active";
-  if (account.paymentStatus === "pending" && account.pendingPlan) return "pending";
+  if (account.paymentStatus === "pending" && account.pendingPlan && !account.planEnds) return "pending";
   const ends = Number(account.planEnds || 0);
   if (!ends) return "active";
   const now = Date.now();
   if (now <= ends) return "active";
-  if (now <= ends + 5 * 86400000) return "grace";
+  const paid = account.sellerPlan && account.sellerPlan !== "free";
+  if (paid && now <= ends + 5 * 86400000) return "grace";
   return "paused";
 }
-function directoryShops(accounts: any) {
-  const extras = [];
+let remoteShops: Shop[] = [];
+
+function asCategory(id: string): CategoryId {
+  const known = ["food", "crafts", "plants", "vehicles", "homes", "beauty", "bazaar", "misc", "pets", "clothes", "all"];
+  return (known.includes(id) ? id : "misc") as CategoryId;
+}
+
+function asPlan(id: string): PlanId {
+  return id === "basic" || id === "grow" || id === "premium" ? id : "free";
+}
+
+export function setRemoteShops(shops: Shop[]) {
+  remoteShops = shops;
+}
+
+function shopFromPublic(row: {
+  slug: string;
+  name: string;
+  area: string;
+  plan: string;
+  category: string;
+  keywords: string[];
+  bio: string;
+  avatar: string;
+  cover: string;
+  createdAt: number;
+  products: { id: string; name: string; price: number; image: string; full: string }[];
+}): Shop {
+  const category = asCategory(row.category);
+  return {
+    slug: row.slug,
+    name: row.name,
+    nameAr: row.name,
+    area: row.area || "Amman",
+    areaAr: row.area || "عمّان",
+    category,
+    plan: asPlan(row.plan),
+    phone: "",
+    avatar: row.avatar,
+    cover: row.cover,
+    bio: row.bio,
+    bioAr: row.bio,
+    keywords: [...new Set([...builtInKeywords([category]), ...row.keywords])],
+    products: row.products.map((item) => ({
+      id: item.id,
+      name: item.name,
+      nameAr: item.name,
+      price: item.price,
+      desc: "",
+      descAr: "",
+      images: [item.image || item.full].filter(Boolean),
+    })),
+    mode: "inquire",
+    km: 0,
+    createdAt: row.createdAt,
+    joinedAt: row.createdAt,
+  };
+}
+
+function directoryShops(accounts: any): Shop[] {
+  const extras: Shop[] = [];
+  const seen = new Set<string>();
   for (const account of rows(accounts)) {
     if (account.role !== "seller") continue;
     if (billingPhase(account) === "paused") continue;
     const slug = slugForSeller(account);
-    if (SHOPS.some((shop) => shop.slug === slug)) continue;
+    if (!slug || seen.has(slug) || SHOPS.some((shop) => shop.slug === slug)) continue;
+    seen.add(slug);
     const products = (account.listings ?? []).filter((item: any) => item.shopSlug === slug || item.shopSlug === account.shopSlug).map((item: any) => publicProduct(item, account.sellerPlan === "premium")).filter((item: any) => Boolean(item));
     const reviews = account.stallReviews ?? [];
     const rating = reviews.length ? Math.round(reviews.reduce((sum: any, review: any) => sum + review.score, 0) / reviews.length * 10) / 10 : void 0;
@@ -183,8 +245,8 @@ function directoryShops(accounts: any) {
     const joined = account.joinedAt ? new Date(account.joinedAt) : null;
     extras.push({
       slug,
-      name: account.displayName || account.username,
-      nameAr: account.displayName || account.username,
+      name: account.shopName || account.displayName || account.username,
+      nameAr: account.shopName || account.displayName || account.username,
       area: account.city || "Amman",
       areaAr: account.city === "Amman" || !account.city ? "\u0639\u0645\u0651\u0627\u0646" : account.city,
       category,
@@ -203,6 +265,8 @@ function directoryShops(accounts: any) {
       rating,
       reviewCount: reviews.length,
       since: joined ? joined.toLocaleString("en", { month: "short", year: "numeric" }) : void 0,
+      joinedAt: account.joinedAt,
+      createdAt: account.joinedAt,
       products,
       reviews,
       askQty: account.askQty,
@@ -212,12 +276,24 @@ function directoryShops(accounts: any) {
       openNoteAr: account.openNoteAr,
       closedNote: account.closedNote,
       closedNoteAr: account.closedNoteAr,
-      keywords: account.findWords,
+      keywords: [
+        ...new Set([
+          ...builtInKeywords(account.categories ?? [category]),
+          ...(account.findWords ?? []),
+        ].filter((word: string) => !(account.droppedKeywords ?? []).some((drop: string) => drop.toLowerCase() === word.toLowerCase()))),
+      ],
       socials: publicSocials(account),
       km: 0
     });
   }
-  return [...extras, ...SHOPS];
+  const catalog: Shop[] = [];
+  const ids = new Set<string>();
+  for (const shop of [...remoteShops, ...extras, ...SHOPS]) {
+    if (!shop?.slug || ids.has(shop.slug)) continue;
+    ids.add(shop.slug);
+    catalog.push(shop);
+  }
+  return catalog;
 }
 function alertNotes(get: any, words: any) {
   const ar = get().lang === "ar";
@@ -233,7 +309,7 @@ function alertNotes(get: any, words: any) {
       if (notes.length >= 12) return notes;
       const id = `alert-${shop.slug}-${clean}`;
       if (existing.has(id) || shopMuted(shop as any, mutedWords, mutedStalls)) continue;
-      if (!shopText(shop as any).includes(clean)) continue;
+      if (!hasWord(shopText(shop as any), clean)) continue;
       existing.add(id);
       const name = ar ? shop.nameAr : shop.name;
       notes.push({
@@ -335,6 +411,7 @@ function toUser(account: any) {
     referredBy: account.referredBy,
     sellerPlan: account.sellerPlan,
     shopSlug: account.shopSlug,
+    shopName: account.shopName || account.displayName,
     whatsappPhone: account.whatsappPhone,
     stallOpen: account.stallOpen,
     stallHours: account.stallHours,
@@ -440,6 +517,58 @@ function buyerPack(s: any) {
     sharedSlugs: s.sharedSlugs ?? []
   };
 }
+let applyingAlgo = false;
+const live = { pending: false, user: false };
+
+function touchAlgo(get: any, key: string) {
+  const stamps = { ...(get().algoStamps ?? {}) };
+  stamps[key] = Date.now();
+  return stamps;
+}
+
+function applyRemoteAlgo(get: any, set: any, algo: any) {
+  if (!algo) return;
+  const s = get();
+  const stamps = { ...(s.algoStamps ?? {}) };
+  const patch: any = {};
+  const take = (key: string, value: unknown) => {
+    const remote = Number(algo.algoStamps?.[key] ?? 0);
+    const local = Number(stamps[key] ?? 0);
+    if (remote > local) {
+      patch[key] = value;
+      stamps[key] = remote;
+    }
+  };
+  take("interestWords", algo.interestWords ?? []);
+  take("algoOrder", Array.isArray(algo.algoOrder) && algo.algoOrder.length ? algoOrder(algo.algoOrder) : s.algoOrder);
+  take("mutedWords", algo.mutedWords ?? []);
+  take("mutedStalls", algo.mutedStalls ?? []);
+  if (!Object.keys(patch).length) return;
+  applyingAlgo = true;
+  withBuyer(get, set, { ...patch, algoStamps: stamps });
+  applyingAlgo = false;
+}
+
+async function publishAlgo(get: any, set: any) {
+  if (applyingAlgo) return;
+  const s = get();
+  if (!s.user?.phone) return;
+  const stamps = s.algoStamps ?? {};
+  const data: Record<string, { value: string[]; updatedAt: number }> = {};
+  if (stamps.interestWords) data.interestWords = { value: (s.interestWords ?? []).filter(Boolean), updatedAt: stamps.interestWords };
+  if (stamps.algoOrder) data.algoOrder = { value: (s.algoOrder ?? []).filter(Boolean), updatedAt: stamps.algoOrder };
+  if (stamps.mutedWords) data.mutedWords = { value: (s.mutedWords ?? []).filter(Boolean), updatedAt: stamps.mutedWords };
+  if (stamps.mutedStalls) data.mutedStalls = { value: (s.mutedStalls ?? []).filter(Boolean), updatedAt: stamps.mutedStalls };
+  if (!Object.keys(data).length) return;
+  try {
+    const res = await syncSouqAlgo({ data });
+    if (!res?.ok || !res.algo) return;
+    applyRemoteAlgo(get, set, res.algo);
+  } catch {
+    /* offline */
+  }
+}
+
 function withBuyer(get: any, set: any, patch: any) {
   const s = get();
   const phone = s.user?.phone;
@@ -491,6 +620,7 @@ const useSession = create<any>()(
       helloHearts: [],
       helloHandles: [],
       algoOrder: DEFAULT_ALGO_ORDER,
+      algoStamps: {},
       sharedSlugs: [],
       notes: [],
       restocks: [],
@@ -505,6 +635,7 @@ const useSession = create<any>()(
       souqMail: [],
       setLang: (lang: any) => set({ lang }),
       startJoin: async (p: any) => {
+        live.pending = true;
         const phone = normalizePhone(p.phone);
         const pending = { ...p, phone };
         delete pending.password;
@@ -523,6 +654,7 @@ const useSession = create<any>()(
           areaLat: p.areaLat,
           areaLng: p.areaLng,
           referral: p.referral,
+          shopName: p.shopName || p.displayName,
           billingPeriod: p.billingPeriod,
           paymentStatus: p.paymentStatus,
           paymentMethod: p.paymentMethod,
@@ -542,6 +674,8 @@ const useSession = create<any>()(
         return { ok: true, retryAfter: sent.retryAfter || 60 };
       },
       completeJoin: async (otp: any) => {
+        live.user = true;
+        live.pending = true;
         let pending = get().pending;
         if (!pending?.phone) pending = readJoinPending();
         if (!pending?.phone) return { ok: false, error: "otp" };
@@ -549,6 +683,12 @@ const useSession = create<any>()(
         const res = await verifySouqOtp({ data: { phone: pending.phone, code } });
         if (!res.ok) return res;
         const account: any = { ...res.account, usernameHistory: [], notes: res.account.role === "seller" ? void 0 : [welcomeNote()] };
+        const named = readJoinPending();
+        const shopName = String(named?.shopName || named?.displayName || account.shopName || "").trim();
+        if (account.role === "seller" && shopName) {
+          account.displayName = shopName;
+          account.shopName = shopName;
+        }
         delete account.password;
         const user = toUser(account);
         set({
@@ -568,6 +708,7 @@ const useSession = create<any>()(
         return saved;
       },
       signIn: async (phone: any, password: any, asRole = "buyer") => {
+        live.user = true;
         const p = normalizePhone(phone);
         if (!isValidArabPhone(p)) return { ok: false, error: "phone" };
         if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return { ok: false, error: "password" };
@@ -588,6 +729,7 @@ const useSession = create<any>()(
         return { ok: true };
       },
       signOut: () => {
+        live.user = true;
         void signOutSouq();
         try { localStorage.removeItem("souq-sync-token"); } catch {}
         const s = get();
@@ -735,7 +877,9 @@ const useSession = create<any>()(
         if (clean.length < 2) return;
         if (kind === "interest") {
           if (get().interestWords.includes(clean) || get().interestWords.length >= WORD_CAP) return;
-          withBuyer(get, set, { interestWords: [...get().interestWords, clean] });
+          const algoStamps = touchAlgo(get, "interestWords");
+          withBuyer(get, set, { interestWords: [...get().interestWords, clean], algoStamps });
+          void publishAlgo(get, set);
         } else {
           if (get().alertWords.includes(clean)) return;
           const notes = alertNotes(get, [clean]);
@@ -743,8 +887,11 @@ const useSession = create<any>()(
         }
       },
       removeWord: (kind: any, word: any) => {
-        if (kind === "interest") withBuyer(get, set, { interestWords: get().interestWords.filter((item: any) => item !== word) });
-        else withBuyer(get, set, { alertWords: get().alertWords.filter((item: any) => item !== word) });
+        if (kind === "interest") {
+          const algoStamps = touchAlgo(get, "interestWords");
+          withBuyer(get, set, { interestWords: get().interestWords.filter((item: any) => item !== word), algoStamps });
+          void publishAlgo(get, set);
+        } else withBuyer(get, set, { alertWords: get().alertWords.filter((item: any) => item !== word) });
       },
       syncAlerts: () => {
         const notes = alertNotes(get, get().alertWords ?? []);
@@ -753,14 +900,26 @@ const useSession = create<any>()(
       muteWord: (word: any) => {
         const clean = word.trim().toLowerCase();
         if (clean.length < 2 || (get().mutedWords ?? []).includes(clean)) return;
-        withBuyer(get, set, { mutedWords: [...get().mutedWords ?? [], clean] });
+        const algoStamps = touchAlgo(get, "mutedWords");
+        withBuyer(get, set, { mutedWords: [...get().mutedWords ?? [], clean], algoStamps });
+        void publishAlgo(get, set);
       },
-      unmuteWord: (word: any) => withBuyer(get, set, { mutedWords: (get().mutedWords ?? []).filter((item: any) => item !== word) }),
+      unmuteWord: (word: any) => {
+        const algoStamps = touchAlgo(get, "mutedWords");
+        withBuyer(get, set, { mutedWords: (get().mutedWords ?? []).filter((item: any) => item !== word), algoStamps });
+        void publishAlgo(get, set);
+      },
       muteStall: (slug: any) => {
         if (!slug || (get().mutedStalls ?? []).includes(slug)) return;
-        withBuyer(get, set, { mutedStalls: [...get().mutedStalls ?? [], slug] });
+        const algoStamps = touchAlgo(get, "mutedStalls");
+        withBuyer(get, set, { mutedStalls: [...get().mutedStalls ?? [], slug], algoStamps });
+        void publishAlgo(get, set);
       },
-      unmuteStall: (slug: any) => withBuyer(get, set, { mutedStalls: (get().mutedStalls ?? []).filter((item: any) => item !== slug) }),
+      unmuteStall: (slug: any) => {
+        const algoStamps = touchAlgo(get, "mutedStalls");
+        withBuyer(get, set, { mutedStalls: (get().mutedStalls ?? []).filter((item: any) => item !== slug), algoStamps });
+        void publishAlgo(get, set);
+      },
       dismissSuggestion: (word: any) => {
         const clean = word.trim().toLowerCase();
         if (!clean || (get().dismissedSuggestions ?? []).includes(clean)) return;
@@ -1209,7 +1368,17 @@ const useSession = create<any>()(
         });
         void patchSouqOrder({ data: { orderId: id, status: "done" } });
       },
-      ensureDirectory: () => {},
+      ensureDirectory: async () => {
+        try {
+          const res = await listPublicShops({ data: { limit: 20, cursor: 0 } });
+          if (!res.ok) return;
+          const shops = res.shops.map(shopFromPublic);
+          setRemoteShops(shops);
+          set({ serverShops: shops });
+        } catch {
+          /* the local catalog still fills the shelves */
+        }
+      },
       ensureHalaDemo: () => {},
       markSellerSeen: (ids: any) => {
         const sellerSeen = Array.from(/* @__PURE__ */ new Set([...get().sellerSeen ?? [], ...ids]));
@@ -1445,44 +1614,61 @@ const useSession = create<any>()(
           reports: (get().reports ?? []).map((item: any) => item.key === key ? { ...item, removed: true } : item)
         });
       },
-      setStall: (patch: any) => {
+      setStall: async (patch: any) => {
         const user = get().user;
         const account = user ? get().accounts[user.phone] : void 0;
         if (!user || !account) return;
-        const next = { ...account, ...patch };
+        const clean = { ...patch };
+        for (const key of ["stallCover", "stallAvatar"] as const) {
+          const value = clean[key];
+          if (typeof value === "string" && value.startsWith("data:")) {
+            const up = await uploadListingImage({ data: { dataUrl: value, kind: "listing" } });
+            clean[key] = up.ok ? up.url : "";
+          }
+        }
+        const next = { ...account, ...clean };
         set({ user: toUser(next), accounts: { ...get().accounts, [user.phone]: next } });
       },
       bumpStallViews: (slug: any) => {
         if (!slug || slug === get().user?.shopSlug) return;
         void recordShopView({ data: { slug } });
       },
-      addHelloPost: (input: any) => {
+      addHelloPost: async (input: any) => {
         const user = get().user;
         if (!user || user.role !== "seller") return { ok: false, error: "auth" };
-        const cap = HELLO_CAP[(user.sellerPlan ?? "free") as keyof typeof HELLO_CAP];
-        if (!cap) return { ok: false, error: "plan" };
+        const cap = HELLO_CAP[(user.sellerPlan ?? "free") as keyof typeof HELLO_CAP] ?? 1;
         const account = get().accounts[user.phone];
         if (!account) return { ok: false, error: "auth" };
         const handles = (get().helloHandles ?? []).map((item: any) => item.handle);
         const text = normalizeHandles(String(input.text ?? "").trim(), handles);
         if (text.length < 2 || !input.image || hasProfanity(text)) return { ok: false, error: "name" };
         if (billedLength(text, handles) > 88) return { ok: false, error: "limit" };
-        const day = ammanDay();
-        const already = account.helloSpent?.day === day ? account.helloSpent.count : 0;
-        const stillUp = (account.helloPosts ?? []).filter((post: any) => ammanDay(post.at) === day).length;
-        const spent = Math.max(already, stillUp);
-        if (spent >= cap) return { ok: false, error: "limit" };
+        const res = await publishHello({ data: { text, lang: input.lang === "ar" ? "ar" : "en", image: input.image } });
+        if (!res.ok) return res;
         const post = {
-          id: `hw-${Date.now()}`,
+          id: res.id,
           shopSlug: user.shopSlug || slugForSeller(user),
           text,
           lang: input.lang === "ar" ? "ar" : "en",
-          image: input.image,
-          at: Date.now(),
+          image: res.thumbUrl || res.imageUrl,
+          full: res.imageUrl,
+          at: res.at,
+          expiresAt: res.at + HELLO_WINDOW,
           views: 0,
-          hearts: 0
+          hearts: 0,
+          status: "live",
         };
-        set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: [post, ...account.helloPosts ?? []], helloSpent: { day, count: spent + 1 } } } });
+        set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: [post, ...account.helloPosts ?? []], helloSpent: { at: Date.now(), count: res.spent } } } });
+        return { ok: true, cap: res.cap, spent: res.spent };
+      },
+      editHelloPost: async (input: any) => {
+        const user = get().user;
+        const account = user ? get().accounts[user.phone] : void 0;
+        if (!user || !account) return { ok: false, error: "auth" };
+        const res = await editHello({ data: { id: input.id, text: String(input.text ?? "").trim(), image: input.image } });
+        if (!res.ok) return res;
+        const posts = (account.helloPosts ?? []).map((post: any) => post.id === input.id ? { ...post, text: String(input.text ?? "").trim(), image: res.thumbUrl || res.imageUrl || post.image } : post);
+        set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: posts } } });
         return { ok: true };
       },
       pruneHello: () => {
@@ -1501,18 +1687,22 @@ const useSession = create<any>()(
         if (!user || user.role !== "seller" || !account) return;
         const posts = account.helloPosts ?? [];
         if (!posts.some((post: any) => post.id === id)) return;
-        const day = ammanDay();
-        const todayCount = posts.filter((post: any) => ammanDay(post.at) === day).length;
-        const already = account.helloSpent?.day === day ? account.helloSpent.count : 0;
+        const spent = account.helloSpent?.count ?? posts.filter((post: any) => Date.now() - post.at < HELLO_WINDOW).length;
         set({
           accounts: {
             ...get().accounts,
             [user.phone]: {
               ...account,
               helloPosts: posts.filter((post: any) => post.id !== id),
-              helloSpent: { day, count: Math.max(already, todayCount) },
+              helloSpent: { at: Date.now(), count: spent },
             },
           },
+        });
+        void deleteHelloPost({ data: { id } }).then((res) => {
+          if (!res.ok) return;
+          const latest = get().accounts[user.phone];
+          if (!latest) return;
+          set({ accounts: { ...get().accounts, [user.phone]: { ...latest, helloSpent: { at: Date.now(), count: res.spent } } } });
         });
       },
       toggleHelloHeart: (id: any) => {
@@ -1533,13 +1723,29 @@ const useSession = create<any>()(
         if (changed) set({ accounts });
       },
       reportHello: (id: any) => {
-        const accounts = { ...get().accounts };
-        for (const phone of Object.keys(accounts)) {
-          const posts = accounts[phone].helloPosts ?? [];
-          if (!posts.some((post: any) => post.id === id)) continue;
-          accounts[phone] = { ...accounts[phone], helloPosts: posts.map((post: any) => post.id === id ? { ...post, reported: true } : post) };
+        void reportTarget({ data: { targetType: "hello", targetId: String(id), reason: "hello" } });
+      },
+      loadHello: async (cursor = 0) => {
+        const res = await listHello({ data: { limit: 20, cursor } });
+        if (res.ok) {
+          const prev = cursor ? get().helloFeed ?? [] : [];
+          const seen = new Set(prev.map((post: { id: string }) => post.id));
+          set({ helloFeed: [...prev, ...res.posts.filter((post) => !seen.has(post.id))] });
         }
-        set({ accounts });
+        return res;
+      },
+      loadHelloQuota: async () => {
+        const res = await helloQuota();
+        const user = get().user;
+        const account = user ? get().accounts[user.phone] : void 0;
+        if (!res.ok || !user || !account) return res;
+        set({
+          accounts: {
+            ...get().accounts,
+            [user.phone]: { ...account, helloPosts: res.posts, helloSpent: { at: Date.now(), count: res.spent } },
+          },
+        });
+        return res;
       },
       deskAddHandle: (name: any, note: any) => {
         const handle = toHandle(name);
@@ -1559,7 +1765,18 @@ const useSession = create<any>()(
         }
         set({ accounts });
       },
-      setAlgoOrder: (order: any) => withBuyer(get, set, { algoOrder: algoOrder(order) }),
+      setAlgoOrder: (order: any) => {
+        const algoStamps = touchAlgo(get, "algoOrder");
+        withBuyer(get, set, { algoOrder: algoOrder(order), algoStamps });
+        void publishAlgo(get, set);
+      },
+      saveAlgorithm: (draft: any) => {
+        const words = (draft?.words ?? []).map((word: any) => String(word).trim().toLowerCase()).filter((word: string) => word.length >= 2).slice(0, WORD_CAP);
+        const algoStamps = { ...(get().algoStamps ?? {}), algoOrder: Date.now(), interestWords: Date.now() };
+        withBuyer(get, set, { algoOrder: algoOrder(draft?.order), interestWords: words, algoStamps });
+        void publishAlgo(get, set);
+      },
+      applyRemoteAlgo: (algo: any) => applyRemoteAlgo(get, set, algo),
       noteShare: (slug: any) => {
         const user = get().user;
         if (!slug || !user || user.role === "seller") return;
@@ -1689,6 +1906,19 @@ const useSession = create<any>()(
     }),
     {
       name: "souq-battuta-session",
+      merge: (persisted: any, current: any) => {
+        const next = { ...current, ...(persisted ?? {}) };
+        if (live.pending) next.pending = current.pending ?? readJoinPending();
+        if (live.user) {
+          next.user = current.user;
+          next.accounts = { ...(persisted?.accounts ?? {}), ...(current.accounts ?? {}) };
+        }
+        if (!next.pending?.phone) {
+          const saved = readJoinPending();
+          if (saved?.phone) next.pending = saved;
+        }
+        return next;
+      },
       partialize: (state: any) => {
         const accounts: Record<string, any> = {};
         const rawAccounts = (state.accounts ?? {}) as Record<string, any>;

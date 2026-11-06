@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { directoryShops, useSession } from "@/lib/session";
-import { rankForYou, shopMuted } from "@/lib/shelves";
+import { newPlacesShelf, rankForYou, shopMuted, useTieSeed } from "@/lib/shelves";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { Crown } from "@/components/plan-stamp";
@@ -22,29 +22,18 @@ import { BRAND } from "@/lib/brand-manifest";
 
 export const Route = createFileRoute("/home")({ component: HomePage });
 
-const MONTH: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-function sinceStamp(since?: string) {
-  if (!since) return 0;
-  const year = Number(since.match(/20\d{2}/)?.[0] ?? 0);
-  const month = MONTH[since.toLowerCase().slice(0, 3)] ?? 0;
-  return year * 12 + month;
-}
-
 function HomePage() {
   const lang = useSession((s) => s.lang);
   const user = useSession((s) => s.user);
   const t = copy[lang];
   const ar = lang === "ar";
   const accounts = useSession((s) => s.accounts);
+  const serverShops = useSession((s) => s.serverShops);
   const ensureDirectory = useSession((s) => s.ensureDirectory);
   useEffect(() => {
     ensureDirectory();
   }, [ensureDirectory]);
-  const catalog = useMemo(() => directoryShops(accounts), [accounts]);
+  const catalog = useMemo(() => directoryShops(accounts), [accounts, serverShops]);
   const words = useSession((s) => s.interestWords);
   const favorites = useSession((s) => s.favorites);
   const bookmarks = useSession((s) => s.bookmarks);
@@ -57,11 +46,16 @@ function HomePage() {
   const shared = useSession((s) => s.sharedSlugs) ?? [];
   const buyerOrders = useSession((s) => s.orders) ?? [];
   const orderSlugs = useMemo(() => [...new Set(buyerOrders.map((order) => order.shopSlug).filter(Boolean))], [buyerOrders]);
+  const browsedCategories = useMemo(() => {
+    const by = new Map(catalog.map((shop) => [shop.slug, shop.category]));
+    return [...new Set(visited.map((slug) => by.get(slug)).filter((id): id is string => Boolean(id)))];
+  }, [catalog, visited]);
+  const tieSeed = useTieSeed();
   const picks = useMemo(
-    () => rankForYou(catalog, { words, favorites, bookmarks, visited, visits, follows, ordered: orderSlugs, shared, order: algo, referred: user?.referredBy, mutedWords, mutedStalls }),
-    [catalog, words, favorites, bookmarks, visited, visits, follows, orderSlugs, shared, algo, user?.referredBy, mutedWords, mutedStalls],
+    () => rankForYou(catalog, { words, favorites, bookmarks, visited, visits, follows, ordered: orderSlugs, shared, order: algo, referred: user?.referredBy, mutedWords, mutedStalls, tieSeed, browsedCategories }).slice(0, 20),
+    [catalog, words, favorites, bookmarks, visited, visits, follows, orderSlugs, shared, algo, user?.referredBy, mutedWords, mutedStalls, tieSeed, browsedCategories],
   );
-  const newest = useMemo(() => [...catalog].sort((a, b) => sinceStamp(b.since) - sinceStamp(a.since)), [catalog]);
+  const newest = useMemo(() => newPlacesShelf(catalog).slice(0, 20), [catalog]);
   const waTaps = useSession((s) => s.waTaps) ?? {};
   const asked = useMemo(
     () => [...catalog].filter((shop) => (shop.waOrders ?? 0) + (waTaps[shop.slug] ?? 0) > 0).sort((a, b) => ((b.waOrders ?? 0) + (waTaps[b.slug] ?? 0)) - ((a.waOrders ?? 0) + (waTaps[a.slug] ?? 0))),
@@ -140,6 +134,11 @@ function HomePage() {
           </div>
         </section>
 
+        <p className="mx-auto max-w-2xl px-4 py-6 text-center text-base leading-relaxed text-ink">
+          <span className="block">Discover Amman’s home businesses without ads or paid boosts. You choose what you see.</span>
+          <span className="mt-2 block" dir="rtl" lang="ar">اكتشف مشاريع عمّان البيتية بدون إعلانات وبدون دفع مقابل الظهور. أنت تختار ما تراه.</span>
+        </p>
+
         <section className="home-section home-cats-wrap" aria-labelledby="home-cats">
           <div className="home-head">
             <div>
@@ -160,16 +159,19 @@ function HomePage() {
               <p className="home-shelf-note">{ar ? "أماكن مختارة إلك" : "Places chosen for you"}</p>
               {user?.role === "seller" ? null : user ? (
                 <Link to="/account" search={{ tab: "", note: "" }} className="home-algo-link">
-                  {ar ? "إذا ما عجبك اللي بتشوفه، غيّر الخوارزمية" : "If you don't like what you see, change the algorithm"}
+                  {ar ? "إذا ما عجبك اللي بتشوفه، غيّر الكلمات" : "If you don't like what you see, change your keywords"}
                 </Link>
               ) : (
                 <Link to="/sign-in" search={{ next: "/account" }} className="home-algo-link">
-                  {ar ? "إذا ما عجبك اللي بتشوفه، غيّر الخوارزمية" : "If you don't like what you see, change the algorithm"}
+                  {ar ? "إذا ما عجبك اللي بتشوفه، غيّر الكلمات" : "If you don't like what you see, change your keywords"}
                 </Link>
               )}
             </div>
           </div>
           {words.length > 0 && <p className="home-note">{t.forYouWords}: {words.join(", ")}</p>}
+          {words.length === 0 && (
+            <p className="home-note">{ar ? "أضف اهتمامات حتى تطابقك الأماكن الجديدة." : "Add a few interests so New Places can match you."}</p>
+          )}
           {user?.referredBy && <p className="home-note">{t.becauseYouJoined} Namos Kitchen</p>}
           <ShopShelf id="for-you" shops={picks} ar={ar} />
           <Link to="/shelf" search={{ kind: "for-you", aisle: "" }} className="shelf-more">
@@ -184,7 +186,7 @@ function HomePage() {
               <div>
                 <p className="home-eyebrow home-kicker">{ar ? "الأحدث" : "Newest"}</p>
                 <h2 id="home-new">{ar ? "أماكن جديدة" : "New Places"}</h2>
-                <p className="home-shelf-note">{ar ? "آخر الدكاكين" : "The latest stalls"}</p>
+                <p className="home-shelf-note">{ar ? "دكاكين فتحت خلال ٣٠ يوماً." : "Shops opened in the last 30 days."}</p>
               </div>
             </div>
             <ShopShelf id="new" shops={newest} ar={ar} />
@@ -206,7 +208,7 @@ function HomePage() {
             <ShopShelf id="asked" shops={asked} ar={ar} />
             <Link to="/shelf" search={{ kind: "asked", aisle: "" }} className="shelf-more">
               <span aria-hidden="true">{ar ? "المزيد" : "More"}</span>
-              <span className="sr-only">{ar ? "المزيد من الأكثر شعبية" : "More most popular stalls"}</span>
+              <span className="sr-only">{ar ? "المزيد من الأكثر شعبية" : "More most popular shops"}</span>
             </Link>
           </section>
         )}
@@ -227,7 +229,7 @@ function HomePage() {
             <div>
               <p className="home-eyebrow home-kicker">{ar ? "اخلط" : "Shuffle"}</p>
               <h2 id="home-random">{ar ? "عشوائي" : "Random"}</h2>
-              <p className="home-shelf-note">{ar ? "بلا خوارزمية - جرّب حظك" : "No Algorithm - try your luck"}</p>
+              <p className="home-shelf-note">{ar ? "خلطة جديدة في كل زيارة" : "A fresh shuffle each visit"}</p>
             </div>
           </div>
           <DrawDeck shops={catalog.filter((shop) => !shopMuted(shop, mutedWords, mutedStalls))} ar={ar} />

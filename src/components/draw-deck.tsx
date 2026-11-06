@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { Product, Shop } from "@/lib/data";
 import { priceLabel } from "@/lib/data";
-import { shuffled } from "@/lib/near";
+import { cryptoSeed, shuffled } from "@/lib/near";
+import { DEFAULT_ALGO_ORDER, type AlgoLever } from "@/lib/shelves";
 import { useSession } from "@/lib/session";
+import { copy } from "@/lib/i18n";
 import { DuckRating } from "@/components/duck-rating";
 import { PlanStamp } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
@@ -12,15 +14,55 @@ import { OptImg } from "@/components/opt-img";
 
 type StoreDraw = { key: string; shop: Shop };
 type ItemDraw = { key: string; shop: Shop; product: Product };
+type DrawCard = StoreDraw | ItemDraw;
+type DrawMode = "mix" | "store" | "item";
 
-function freshSeed() {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return (buf[0] % 2147483646) + 1;
+const SEEN_KEY = "souq-random-seen";
+
+function readSeen() {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(SEEN_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((item) => typeof item === "string").slice(0, 20) : [];
+  } catch {
+    return [];
+  }
 }
 
-function diceFace(seed: number) {
-  return (Math.abs(seed) % 6) + 1;
+function remember(keys: string[]) {
+  const next = [...keys, ...readSeen().filter((key) => !keys.includes(key))].slice(0, 20);
+  try {
+    sessionStorage.setItem(SEEN_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode */
+  }
+}
+
+function baseCards(shops: Shop[], mode: DrawMode): DrawCard[] {
+  const stalls: StoreDraw[] = shops.map((shop) => ({ key: `stall:${shop.slug}`, shop }));
+  const items: ItemDraw[] = shops.flatMap((shop) =>
+    shop.products.filter((product) => !product.paused).map((product) => ({ key: `item:${shop.slug}:${product.id}`, shop, product })),
+  );
+  if (mode === "store") return stalls;
+  if (mode === "item") return items;
+  return [...stalls, ...items];
+}
+
+function deal(shops: Shop[], mode: DrawMode, seed: Uint32Array) {
+  return shuffled(baseCards(shops, mode), seed);
+}
+
+function randomWords(shops: Shop[], seed: Uint32Array) {
+  const bag = new Set<string>();
+  for (const shop of shops) {
+    for (const word of shop.keywords ?? []) if (word.trim().length >= 2) bag.add(word.trim().toLowerCase());
+    if (shop.category && shop.category !== "all" && shop.category !== "misc") bag.add(shop.category);
+  }
+  const count = 3 + (seed[0] % 3);
+  return shuffled([...bag], seed).slice(0, count);
+}
+
+function diceFace(seed: Uint32Array | null) {
+  return ((seed?.[0] ?? 1) % 6) + 1;
 }
 
 function Dice({ face, spin }: { face: number; spin: number }) {
@@ -45,13 +87,20 @@ function Dice({ face, spin }: { face: number; spin: number }) {
 export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
   const noteVisit = useSession((s) => s.noteVisit);
   const accounts = useSession((s) => s.accounts);
-  const [mode, setMode] = useState<"store" | "item">("store");
-  const [storeSeed, setStoreSeed] = useState(1);
-  const [itemSeed, setItemSeed] = useState(2);
+  const saveAlgorithm = useSession((s) => s.saveAlgorithm);
+  const lang = useSession((s) => s.lang);
+  const labels = copy[lang === "ar" ? "ar" : "en"];
+  const [mode, setMode] = useState<DrawMode>("mix");
+  const [seed, setSeed] = useState<Uint32Array | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [spin, setSpin] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useLayoutEffect(() => {
+    setSeed(cryptoSeed());
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 760px)");
@@ -61,38 +110,30 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
+  const deck = useMemo(() => (seed ? deal(shops, mode, seed) : []), [shops, mode, seed]);
+  const algo = useMemo(() => {
+    if (!seed) return { order: [] as AlgoLever[], words: [] as string[] };
+    return { order: shuffled([...DEFAULT_ALGO_ORDER], seed), words: randomWords(shops, seed) };
+  }, [seed, shops]);
+
   useEffect(() => {
-    setStoreSeed(freshSeed());
-    setItemSeed(freshSeed());
-  }, []);
+    if (deck.length) remember(deck.slice(0, 8).map((card) => card.key));
+  }, [deck]);
 
-  const stores = useMemo<StoreDraw[]>(
-    () => shuffled(shops.map((shop) => ({ key: shop.slug, shop })), storeSeed),
-    [shops, storeSeed],
-  );
-  const items = useMemo<ItemDraw[]>(() => {
-    const deck = shops.flatMap((shop) =>
-      shop.products.filter((product) => !product.paused).map((product) => ({ key: `${shop.slug}:${product.id}`, shop, product })),
-    );
-    return shuffled(deck, itemSeed);
-  }, [shops, itemSeed]);
-
-  const openSlug = open == null ? "" : ((mode === "store" ? stores[open]?.shop.slug : items[open]?.shop.slug) ?? "");
+  const openSlug = open == null ? "" : deck[open]?.shop.slug ?? "";
   useEffect(() => {
     if (openSlug) noteVisit(openSlug);
   }, [openSlug, noteVisit]);
 
   const hearts = useMemo(() => {
     const count: Record<string, number> = {};
-    for (const account of Object.values(accounts)) {
+    for (const account of Object.values(accounts as Record<string, { role?: string; favorites?: string[] }>)) {
       if (account.role === "seller") continue;
       for (const id of account.favorites ?? []) count[id] = (count[id] ?? 0) + 1;
     }
     return count;
   }, [accounts]);
 
-  const deck = mode === "store" ? stores : items;
-  const seed = mode === "store" ? storeSeed : itemSeed;
   const size = narrow ? 4 : 3;
   const pages = Math.max(1, Math.ceil(deck.length / size));
   const safePage = page % pages;
@@ -117,38 +158,64 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
 
   function shuffle(event?: { preventDefault: () => void }) {
     event?.preventDefault();
-    if (deck.length < 2) return;
+    if (baseCards(shops, mode).length < 2) return;
     const first = deck[0]?.key;
-    let next = freshSeed();
-    const source = mode === "store" ? stores.map((card) => card.shop) : items;
-    for (let guard = 0; guard < 8; guard += 1) {
-      const trial = shuffled(mode === "store" ? shops : source, next);
-      const lead = mode === "store" ? (trial[0] as Shop | undefined)?.slug : (trial[0] as ItemDraw | undefined)?.key;
-      if (lead !== first) break;
-      next += 1;
+    let next = cryptoSeed();
+    let trial = deal(shops, mode, next);
+    for (let guard = 0; guard < 6 && trial[0]?.key === first; guard += 1) {
+      next = cryptoSeed();
+      trial = deal(shops, mode, next);
     }
     setPage(0);
     setOpen(null);
+    setSaved(false);
     setSpin((n) => n + 1);
-    if (mode === "store") setStoreSeed(next);
-    else setItemSeed(next);
+    setSeed(next);
   }
 
-  function switchMode(next: "store" | "item") {
+  function switchMode(next: DrawMode) {
     setMode(next);
     setPage(0);
     setOpen(null);
+    setSaved(false);
+    setSeed(cryptoSeed());
+  }
+
+  const leverName: Record<AlgoLever, string> = {
+    words: labels.algoWords,
+    ordered: labels.algoOrdered,
+    follow: labels.algoFollow,
+    shared: labels.algoShared,
+    bookmarks: labels.algoBookmarks,
+    liked: labels.algoLiked,
+    visited: labels.algoVisited,
+    likeSimilar: labels.algoLikeSimilar,
+    followSimilar: labels.algoFollowSimilar,
+    fresh: labels.algoNew,
+  };
+
+  if (!seed) {
+    return (
+      <div className="draw-deck" aria-busy="true">
+        <p className="home-note">{ar ? "…" : "…"}</p>
+      </div>
+    );
   }
 
   return (
     <div className="draw-deck">
       <p className="draw-line">
-        {mode === "store"
-          ? ar ? "اخلط لترتيب جديد. كل دكان إله نفس الفرصة." : "Shuffle for a new order. Every stall has the same chance."
-          : ar ? "اخلط لترتيب جديد. كل غرض إله نفس الفرصة." : "Shuffle for a new order. Every item has the same chance."}
+        {mode === "mix"
+          ? ar ? "اخلط. الدكاكين والأغراض سوا، وكل واحد إله نفس الفرصة." : "Shuffle. Stalls and items are mixed, and each one has the same chance."
+          : mode === "store"
+            ? ar ? "اخلط لترتيب جديد. كل دكان إله نفس الفرصة." : "Shuffle for a new order. Every stall has the same chance."
+            : ar ? "اخلط لترتيب جديد. كل غرض إله نفس الفرصة." : "Shuffle for a new order. Every item has the same chance."}
       </p>
       <div className="draw-tools">
         <div className="near-modes" role="tablist">
+          <button type="button" role="tab" aria-selected={mode === "mix"} className={mode === "mix" ? "cat-pick is-draw" : "cat-pick"} onClick={() => switchMode("mix")}>
+            <b>{ar ? "مختلط" : "Mixed"}</b>
+          </button>
           <button type="button" role="tab" aria-selected={mode === "store"} className={mode === "store" ? "cat-pick is-draw" : "cat-pick"} onClick={() => switchMode("store")}>
             <b>{ar ? "حسب الدكان" : "By store"}</b>
           </button>
@@ -161,6 +228,27 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
           <span>{ar ? "اخلط" : "Shuffle"}</span>
         </button>
       </div>
+      {algo.words.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold text-mute">{ar ? "خوارزميتك العشوائية:" : "Your random algo:"}</p>
+          {algo.words.map((word) => (
+            <span key={word} className="rounded-full bg-sand px-2 py-1 text-xs">{word}</span>
+          ))}
+          {algo.order.slice(0, 3).map((lever) => (
+            <span key={lever} className="rounded-full border border-line px-2 py-1 text-xs">{leverName[lever]}</span>
+          ))}
+          <button
+            type="button"
+            className="text-xs font-semibold underline"
+            onClick={() => {
+              saveAlgorithm({ order: algo.order, words: algo.words });
+              setSaved(true);
+            }}
+          >
+            {saved ? (ar ? "تم الحفظ" : "Saved") : ar ? "احفظها خوارزميتي" : "Save as my algorithm"}
+          </button>
+        </div>
+      )}
       {deck.length === 0 ? (
         <p className="home-note">{ar ? "ما في شي بهالقسم بعد." : "Nothing in this aisle yet."}</p>
       ) : (
@@ -226,7 +314,7 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
       )}
       {current && narrow ? (
         <StallPeek
-          shops={(mode === "store" ? stores : items).map((card) => card.shop)}
+          shops={deck.map((card) => card.shop)}
           index={open ?? 0}
           ar={ar}
           onClose={() => setOpen(null)}
@@ -234,8 +322,8 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
           focus={
             "product" in current
               ? {
-                  title: ar ? current.product.nameAr : current.product.name,
-                  image: current.product.images[0] || current.shop.avatar,
+                  title: ar ? (current as ItemDraw).product.nameAr : (current as ItemDraw).product.name,
+                  image: (current as ItemDraw).product.images[0] || current.shop.avatar,
                 }
               : undefined
           }

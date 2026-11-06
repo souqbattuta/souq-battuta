@@ -16,7 +16,7 @@ export const Route = createFileRoute("/join/seller_/plan")({
 const PAID: PlanId[] = ["basic", "grow", "premium"];
 const RANK: Record<PlanId, number> = { free: 0, basic: 1, grow: 2, premium: 3 };
 const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo" | "hello" }[] = [
-  { en: "The Treasury", ar: "الخزينة", min: "free", hint: "treasury" },
+  { en: "The Souq", ar: "السوق", min: "free", hint: "treasury" },
   { en: "Order / Inquire Now", ar: "اطلب / استفسر الآن", min: "free" },
   { en: "WhatsApp stays yours", ar: "واتساب يبقى إلك", min: "free" },
   { en: "5 items", ar: "٥ أصناف", min: "free" },
@@ -28,16 +28,16 @@ const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo
   { en: "Your profile photo", ar: "صورة ملفك", min: "basic" },
   { en: "Open / Closed", ar: "مفتوح / مغلق", min: "basic" },
   { en: "View count", ar: "عدد المشاهدات", min: "basic" },
-  { en: "5 algorithm terms", ar: "٥ مصطلحات للخوارزمية", min: "basic", hint: "algo" },
-  { en: "15 algorithm terms", ar: "١٥ مصطلحاً للخوارزمية", min: "grow", hint: "algo" },
-  { en: "25 algorithm terms", ar: "٢٥ مصطلحاً للخوارزمية", min: "premium", hint: "algo" },
+  { en: "5 keywords", ar: "٥ كلمات", min: "basic", hint: "algo" },
+  { en: "15 keywords", ar: "١٥ كلمة", min: "grow", hint: "algo" },
+  { en: "25 keywords", ar: "٢٥ كلمة", min: "premium", hint: "algo" },
   { en: "Reviews", ar: "تقييمات", min: "grow" },
   { en: "Sort the shop your way", ar: "رتّب الدكان على كيفك", min: "grow" },
   { en: "Link your social media", ar: "اربط حساباتك", min: "basic" },
   { en: "Analytics", ar: "تحليلات", min: "grow" },
-  { en: "2 Hello, World! posts a day", ar: "منشوران في اليوم على Hello, World!", min: "basic", hint: "hello" },
-  { en: "3 Hello, World! posts a day", ar: "٣ منشورات في اليوم على Hello, World!", min: "grow", hint: "hello" },
-  { en: "5 Hello, World! posts a day", ar: "٥ منشورات في اليوم على Hello, World!", min: "premium", hint: "hello" },
+  { en: "2 Hello World posts per 24 hours", ar: "منشورا Hello World كل ٢٤ ساعة", min: "basic", hint: "hello" },
+  { en: "3 Hello World posts per 24 hours", ar: "٣ منشورات Hello World كل ٢٤ ساعة", min: "grow", hint: "hello" },
+  { en: "5 Hello World posts per 24 hours", ar: "٥ منشورات Hello World كل ٢٤ ساعة", min: "premium", hint: "hello" },
   { en: "Messages from sellers", ar: "رسائل البائعين", min: "grow" },
   { en: "Search in the stall", ar: "بحث في الدكان", min: "premium" },
   { en: "Sizes and colors", ar: "مقاسات وألوان", min: "premium" },
@@ -111,7 +111,7 @@ function SellerPlanPage() {
     });
     setLoading(false);
     if (!joined.ok) {
-      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
+      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : joined.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
       return;
     }
     remember({ plan: gift?.plan ?? chosen, billingPeriod: payment?.period, paymentMethod: payment?.method ?? "free", paymentRef: payment?.ref, promoCode: gift?.code, promoMonths: gift?.months });

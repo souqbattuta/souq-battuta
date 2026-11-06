@@ -11,7 +11,8 @@ import { PhotoStudio, SquareCrop } from "@/components/photo-frame";
 import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
-import { submitSouqPayment } from "@/lib/souq-sync";
+import { AnimalRule } from "@/components/animal-rule";
+import { builtInKeywords } from "@/lib/shelves";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
 type DraftOption = { en: string; ar: string; extra: string; off: boolean; reason: "" | "unavailable" | "stock" | "sold"; back: string };
@@ -279,7 +280,7 @@ function SellerDesk() {
     reviews: account?.stallReviews,
     cleared: sellerCleared ?? [],
     views: account?.stallViews ?? 0,
-    daysLeft: membershipDays(user.planEnds ?? account?.planEnds),
+    daysLeft: user.planEnds ?? account?.planEnds ? membershipDays(user.planEnds ?? account?.planEnds) : undefined,
   });
   const threads = (mail ?? []).filter((thread) => thread.phones.includes(user.phone));
   const stallReviews = account?.stallReviews ?? [];
@@ -386,7 +387,7 @@ function SellerDesk() {
                   ["photo", "Profile picture", "صورة الملف"],
                   ["hours", "Hours", "الساعات"],
                   ["socials", "Social media", "التواصل"],
-                  ["algorithm", "Algorithm", "الخوارزمية"],
+                  ["algorithm", "Keywords", "الكلمات"],
                   ["products", "Products", "المنتجات"],
                 ] as const
               ).map(([id, en, arabic]) => (
@@ -421,7 +422,7 @@ function SellerDesk() {
                 }}
               >
                 <label className="text-sm">
-                  {ar ? "اسم الدكان" : "Stall name"}
+                  {ar ? "اسم الدكان" : "Shop name"}
                   <input value={stallName} onChange={(event) => setStallName(event.target.value)} className="mt-1 h-11 w-full rounded-md border border-line px-3" />
                   <span className={`mt-1 block text-xs ${stallName.trim().length >= 2 && stallNameTaken(stallName, accounts, user.phone) ? "text-red" : "text-mute"}`}>
                     {stallName.trim().length < 2
@@ -467,7 +468,9 @@ function SellerDesk() {
                 ar={ar}
                 cap={PLANS[planId].keywords}
                 words={account?.findWords ?? []}
+                builtIn={builtInKeywords(account?.categories ?? []).filter((word) => !(account?.droppedKeywords ?? []).some((drop: string) => drop.toLowerCase() === word.toLowerCase()))}
                 onChange={(findWords) => setStall({ findWords })}
+                onDropBuiltIn={(word) => setStall({ droppedKeywords: [...(account?.droppedKeywords ?? []), word] })}
               />
             )}
             {editPane === "hours" && (
@@ -512,7 +515,8 @@ function SellerDesk() {
               </form>
             )}
             {editPane === "products" && (
-              <div className="mt-4" id="desk-editor">
+              <div className="mt-4 space-y-4" id="desk-editor">
+                <AnimalRule ar={ar} />
                 <form className="grid gap-4 rounded-xl border border-line bg-cream p-4 sm:grid-cols-2" onSubmit={onListing}>
                   <label className="text-sm">
                     Name
@@ -1107,8 +1111,10 @@ function BillingBanner({ ar, planId, phase, ends, pending }: { ar: boolean; plan
   let text = "";
   if (phase === "pending" || pending) {
     text = ar ? "الدفع بانتظار التأكيد. الخطة المدفوعة تفتح بعد ما نأكد التحويل." : "Payment is pending. The paid plan opens after we confirm the transfer.";
+  } else if (phase === "paused" && planId === "free") {
+    text = ar ? "انتهت التجربة المجانية. الدكان متوقف وبياناتك محفوظة. اختر خطة مدفوعة لفتحه." : "Your free trial is done. Your shop is paused. Choose a paid plan to open it again.";
   } else if (phase === "paused") {
-    text = ar ? "الدكان متوقف ومخفي. بياناتك محفوظة. جدّد ليظهر من جديد." : "The stall is paused and hidden. Your data is kept. Renew to show it again.";
+    text = ar ? "الدكان متوقف ومخفي. بياناتك محفوظة. جدّد ليظهر من جديد." : "The shop is paused and hidden. Your data is kept. Renew to show it again.";
   } else if (phase === "grace") {
     text = ar ? "أنت في فترة سماح من ٣ إلى ٥ أيام. جدّد قبل ما يتوقف الدكان." : "You are in the 5-day grace period. Renew before the stall is paused.";
   } else if (planId === "free" && days != null && days <= 14) {
@@ -1501,7 +1507,7 @@ function termKey(value: string) {
   return value.toLowerCase().replace(/\s*[·/]\s*/g, " / ").replace(/\s+/g, " ").trim();
 }
 
-function AlgorithmBoard({ ar, cap, words, onChange }: { ar: boolean; cap: number; words: string[]; onChange: (next: string[]) => void }) {
+function AlgorithmBoard({ ar, cap, words, builtIn = [], onChange, onDropBuiltIn }: { ar: boolean; cap: number; words: string[]; builtIn?: string[]; onChange: (next: string[]) => void; onDropBuiltIn?: (word: string) => void }) {
   const [en, setEn] = useState("");
   const [arabic, setArabic] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1529,21 +1535,32 @@ function AlgorithmBoard({ ar, cap, words, onChange }: { ar: boolean; cap: number
     setEn("");
     setArabic("");
   }
-  if (cap < 1) {
-    return <p className="mt-4 rounded-xl border border-line bg-cream p-4 text-sm text-mute">{ar ? "الخوارزمية تفتح من الأساسي." : "Algorithm opens on Basic."}</p>;
+  if (cap < 1 && builtIn.length === 0) {
+    return <p className="mt-4 rounded-xl border border-line bg-cream p-4 text-sm text-mute">{ar ? "الكلمات الإضافية تفتح من الأساسي. كلمات القسم تبقى مع الدكان." : "Extra keywords open on Basic. Category words stay on the shop."}</p>;
   }
   return (
     <section className="mt-4 max-w-3xl space-y-4">
       <div className="rounded-xl border border-line bg-cream p-5">
-        <h2 className="font-display text-2xl">{ar ? "الخوارزمية" : "Algorithm"}</h2>
+        <h2 className="font-display text-2xl">{ar ? "الكلمات" : "Keywords"}</h2>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink">
           {ar
             ? "هذي مو أصناف المنيو. الكنافة إذا كانت بالقائمة، المشتري يلاقيها من غير ما تضيفها. أضف الطريقة اللي يدور فيها: مطبخ عربي، مناسبة، هدية."
             : "These are not menu items. If knafeh is already on the menu, a buyer can find it without you adding it. Add the way they look: Arabic cuisine, a special occasion, a gift."}
         </p>
-        <p className="mt-3 text-sm italic text-mute">
-          {ar ? "سطر إنجليزي وسطر عربي = مصطلح واحد. Gift / هدية يُحسب واحد، مو اثنين." : "One English line and one Arabic line are one term. Gift / هدية counts as one, not two."}
-        </p>
+        {builtIn.length > 0 && (
+          <div className="mt-3">
+            <p className="text-sm text-mute">{ar ? "كلمات القسم. ما بتخصم من خطتك. تقدر تشيلها." : "Category words. They do not count toward your plan. You can remove one."}</p>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {builtIn.map((word) => (
+                <li key={word}>
+                  <button type="button" className="h-10 rounded-full border border-line bg-white px-3 text-sm" onClick={() => onDropBuiltIn?.(word)}>
+                    {word} ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <p className="mt-4 font-display text-xl">{words.length} <span className="text-mute">/ {cap}</span></p>
       </div>
       {ALGORITHM_GROUPS.map((group) => (

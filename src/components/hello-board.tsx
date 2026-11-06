@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { Shop } from "@/lib/data";
 import {
   HELLO_CAP,
-  ammanDay,
+  HELLO_EDIT,
   billedLength,
   boardHandles,
   boardPosts,
@@ -21,6 +21,7 @@ import { SquareCrop } from "@/components/photo-frame";
 import { OptImg } from "@/components/opt-img";
 import { PlanStamp } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
+import { AnimalRule } from "@/components/animal-rule";
 
 export function helloStamp(at: number) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -41,23 +42,17 @@ function postedAgo(at: number, now: number, ar: boolean) {
   return ar ? `قبل ${hours} س` : `${hours} hours ago`;
 }
 
-function hoursLeft(at: number, now: number, today: boolean, ar: boolean) {
-  if (today) {
-    const day = ammanDay(now);
-    const midnight = new Date(`${day}T00:00:00+03:00`).getTime() + 864e5;
-    const left = Math.max(0, midnight - now);
-    if (left < 3600e3) {
-      const mins = Math.max(1, Math.ceil(left / 60e3));
-      return ar ? `${mins} دقيقة وبتختفي` : `${mins} min left`;
-    }
-    const hours = Math.ceil(left / 3600e3);
-    return ar ? `${hours} ساعة وبتختفي` : `${hours} hours left`;
+function hoursLeft(at: number, now: number, _today: boolean, ar: boolean) {
+  const left = Math.max(0, at + 24 * 60 * 60 * 1000 - now);
+  if (left < 3600e3) {
+    const mins = Math.max(1, Math.ceil(left / 60e3));
+    return ar ? `${mins} دقيقة وبتختفي` : `${mins} min left`;
   }
-  const days = Math.max(1, Math.ceil((at + 30 * 864e5 - now) / 864e5));
-  return ar ? `${days} يوم بالحفظ` : `${days} days in history`;
+  const hours = Math.ceil(left / 3600e3);
+  return ar ? `${hours} ساعة وبتختفي` : `${hours} hours left`;
 }
 
-function HistoryRow({ post, ar, now, today = false, onDelete }: { post: HelloPost; ar: boolean; now: number; today?: boolean; onDelete?: (id: string) => void }) {
+function HistoryRow({ post, ar, now, today = false, onDelete, onEdit }: { post: HelloPost; ar: boolean; now: number; today?: boolean; onDelete?: (id: string) => void; onEdit?: (post: HelloPost) => void }) {
   return (
     <li>
       <OptImg src={post.image} alt="" />
@@ -65,6 +60,11 @@ function HistoryRow({ post, ar, now, today = false, onDelete }: { post: HelloPos
       <small>
         {post.views} {ar ? "مشاهدة" : "views"} · {helloStamp(post.at)} · {hoursLeft(post.at, now, today, ar)}
       </small>
+      {onDelete && now - post.at < HELLO_EDIT && onEdit && (
+        <button type="button" className="hw-delete" onClick={() => onEdit(post)}>
+          {ar ? "تعديل" : "Edit"}
+        </button>
+      )}
       {onDelete && (
         <button type="button" className="hw-delete" onClick={() => onDelete(post.id)}>
           {ar ? "حذف" : "Delete"}
@@ -485,7 +485,7 @@ function HelloViewer({
         />
         <HelloText text={post.text} lang={post.lang} handles={handles} onAt={onAt} />
         <div className="hw-story-photo">
-          <OptImg className="hw-view-photo" src={post.image} alt="" />
+          <OptImg className="hw-view-photo" src={post.full || post.image} alt="" />
         </div>
         <figcaption>
           <div className="hw-view-stats">
@@ -514,9 +514,19 @@ function HelloViewer({
 export function HelloStrip({ shops }: { shops: Shop[] }) {
   const accounts = useSession((s) => s.accounts);
   const follows = useSession((s) => s.follows) ?? [];
+  const words = useSession((s) => s.interestWords) ?? [];
+  const loadHello = useSession((s) => s.loadHello);
+  const feed = useSession((s) => s.helloFeed) ?? [];
   const ar = useSession((s) => s.lang) === "ar";
   const allowed = useMemo(() => new Set(shops.map((shop) => shop.slug)), [shops]);
-  const live = homeHello(boardPosts(Object.values(accounts)), follows).filter((post) => allowed.has(post.shopSlug));
+  useEffect(() => {
+    void loadHello();
+  }, [loadHello]);
+  const live = homeHello(
+    postsToday(feed.length ? feed : boardPosts(Object.values(accounts))),
+    follows,
+    words,
+  ).filter((post) => allowed.has(post.shopSlug) || feed.some((item: HelloPost) => item.id === post.id));
   const stripKey = live.map((post) => post.id).sort().join("\n");
   const stripHeld = useRef({ key: "", posts: live });
   if (stripHeld.current.key !== stripKey) stripHeld.current = { key: stripKey, posts: live };
@@ -526,10 +536,10 @@ export function HelloStrip({ shops }: { shops: Shop[] }) {
     <section className="home-section home-shelf hw-home" aria-labelledby="home-hello">
       <div className="home-head home-head-rule">
         <div>
-          <p className="home-eyebrow home-kicker">Today</p>
-          <h2 id="home-hello">Hello, World!</h2>
+          <p className="home-eyebrow home-kicker">Hello World</p>
+          <h2 id="home-hello">{ar ? "اليوم من السوق" : "Today From the Souq"}</h2>
           <p className="home-shelf-note">
-            {ar ? "خبر يومي من السوق. بيطلع الـ١٢ وبيروح الـ١٢." : "A daily note from the souq. Up at 12, gone at 12."}
+            {ar ? "كل منشور يبقى ٢٤ ساعة من وقت نشره." : "Each post stays up for 24 hours from the time it was published."}
           </p>
         </div>
       </div>
@@ -637,8 +647,19 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
   const toggleFollow = useSession((s) => s.toggleFollow);
   const viewHello = useSession((s) => s.viewHello);
   const reportHello = useSession((s) => s.reportHello);
+  const loadHello = useSession((s) => s.loadHello);
+  const feed = useSession((s) => s.helloFeed) ?? [];
   const shops = useMemo(() => directoryShops(accounts), [accounts]);
-  const today = useMemo(() => boardPosts(Object.values(accounts)), [accounts]);
+  const today = useMemo(() => {
+    const mine = user ? accounts[user.phone]?.helloPosts ?? [] : [];
+    const byId = new Map<string, HelloPost>();
+    for (const post of [...feed, ...mine]) {
+      if (!post?.id || post.status === "removed" || post.status === "hidden") continue;
+      byId.set(post.id, post);
+    }
+    const live = postsToday([...byId.values()]);
+    return live.length ? live : boardPosts([]);
+  }, [accounts, feed, user]);
   const orderKey = `${tab}\n${today.map((post) => post.id).join("\n")}\n${words.join("\n")}`;
   const followsNow = useRef(follows);
   followsNow.current = follows;
@@ -651,17 +672,19 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
         ? [...today].sort((a, b) => b.at - a.at)
         : tab === "viewed"
           ? [...today].sort((a, b) => (b.views ?? 0) - (a.views ?? 0) || b.at - a.at)
-          : rankHello(today, { words, follows: followsNow.current, pageLikes, helloHearts, shops });
+          : rankHello(today, { words, follows: followsNow.current, shops });
   }
   const ordered = held.current.map((post) => today.find((item) => item.id === post.id)).filter((post): post is HelloPost => Boolean(post));
   const [open, setOpen] = useState<number | null>(null);
+  const [helloCursor, setHelloCursor] = useState(0);
   const [reported, setReported] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const ar = lang === "ar";
   useEffect(() => {
+    void loadHello();
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [loadHello]);
   useEffect(() => {
     if (!postId) return;
     const index = ordered.findIndex((item) => item.id === postId);
@@ -697,10 +720,10 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
           Back
         </Link>
         <h1>{mention?.handle ?? `@${at}`}</h1>
-        <p className="hw-note">{mention?.note || "This place has not advertised on Souq Battuta."}</p>
-        <h2>Who is going</h2>
+        <p className="hw-note">{mention?.note || (ar ? "هذا المكان ما أعلن على سوق بطوطة." : "This place has not advertised on Souq Battuta.")}</p>
+        <h2>{ar ? "مين رايح" : "Who is going"}</h2>
         {tagged.length === 0 ? (
-          <p className="hw-note">No stalls have mentioned this today.</p>
+          <p className="hw-note">{ar ? "ما حدا ذكر المكان خلال ٢٤ ساعة." : "No shops have mentioned this in the last 24 hours."}</p>
         ) : (
           tagged.map((post) => {
             const shop = shopBySlug(shops, post.shopSlug);
@@ -733,7 +756,7 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
           </Link>
         ))}
       </div>
-      {ordered.length === 0 && <p className="hw-note">Nothing on the board yet today.</p>}
+      {ordered.length === 0 && <p className="hw-note">{ar ? "ما في شي على اللوح بعد." : "Nothing on the board yet."}</p>}
       <div className="hw-list">
         {ordered.map((post, index) => {
           const shop = shopBySlug(shops, post.shopSlug);
@@ -799,6 +822,19 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
           );
         })}
       </div>
+      {feed.length >= 20 && (
+        <button
+          type="button"
+          className="hw-more-posts"
+          onClick={() => {
+            const next = helloCursor + 20;
+            setHelloCursor(next);
+            void loadHello(next);
+          }}
+        >
+          {ar ? "المزيد" : "More"}
+        </button>
+      )}
       </div>
       {open != null && (
         <HelloViewer
@@ -838,22 +874,25 @@ export function HelloComposer() {
   const addHelloPost = useSession((s) => s.addHelloPost);
   const pruneHello = useSession((s) => s.pruneHello);
   const deleteHello = useSession((s) => s.deleteHello);
+  const editHelloPost = useSession((s) => s.editHelloPost);
+  const loadHelloQuota = useSession((s) => s.loadHelloQuota);
   const ui = useSession((s) => s.lang);
   const ar = ui === "ar";
   const plan = user?.sellerPlan ?? "free";
-  const cap = HELLO_CAP[plan];
+  const cap = HELLO_CAP[plan] ?? 1;
   const [now, setNow] = useState(() => Date.now());
   const [more, setMore] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   useEffect(() => {
     pruneHello();
+    void loadHelloQuota();
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
-  }, [pruneHello]);
+  }, [pruneHello, loadHelloQuota]);
   const all = [...(user ? accounts[user.phone]?.helloPosts ?? [] : [])].sort((a, b) => b.at - a.at);
-  const todayKey = ammanDay(now);
-  const monthAgo = now - 30 * 864e5;
-  const mine = all.filter((post) => ammanDay(post.at) === todayKey);
-  const older = all.filter((post) => ammanDay(post.at) !== todayKey && post.at >= monthAgo);
+  const windowStart = now - 24 * 60 * 60 * 1000;
+  const mine = all.filter((post) => post.at >= windowStart && post.status !== "removed");
+  const older = all.filter((post) => post.at < windowStart && post.at >= now - 30 * 864e5);
   const [text, setText] = useState("");
   const [lang, setLang] = useState<"en" | "ar">("en");
   const [image, setImage] = useState<string | null>(null);
@@ -862,15 +901,15 @@ export function HelloComposer() {
   const count = billedLength(text, names);
   const ideas = suggestHandles(text, names);
   const account = user ? accounts[user.phone] : null;
-  const spent = account?.helloSpent?.day === todayKey ? account.helloSpent.count : mine.length;
-  const ready = text.trim().length >= 2 && count <= 88 && Boolean(image) && spent < cap;
+  const spent = account?.helloSpent?.count ?? mine.length;
+  const left = Math.max(0, cap - spent);
+  const ready = text.trim().length >= 2 && count <= 88 && Boolean(image) && (editing ? true : spent < cap);
   const [preview, setPreview] = useState(false);
-  if (!cap) return <p className="hw-note">{ar ? "Hello, World! بيفتح على الأساسي." : "Hello, World! opens on Basic."}</p>;
   return (
     <div className="hw-write">
-      <p>
-        {spent} / {cap} {ar ? "اليوم" : "today"}
-      </p>
+      <AnimalRule ar={ar} />
+      <p>{ar ? `باقي لك ${left} من ${cap} منشورات.` : `You have ${left} of ${cap} posts left.`}</p>
+      <p className="hw-note">{ar ? "كل منشور يبقى ٢٤ ساعة. خطتك تحدد كم منشور تقدر تنشر." : "Each post lasts 24 hours. Your plan sets how many you can publish."}</p>
       <div className="hw-lang">
         <button type="button" className={lang === "en" ? "is-on" : ""} onClick={() => setLang("en")}>
           English
@@ -917,7 +956,7 @@ export function HelloComposer() {
       {mine.length === 0 && <p className="hw-note">{ar ? "ما في منشور اليوم." : "Nothing posted today."}</p>}
       <ul className="hw-mine">
         {mine.map((post) => (
-          <HistoryRow key={post.id} post={post} ar={ar} now={now} today onDelete={deleteHello} />
+          <HistoryRow key={post.id} post={post} ar={ar} now={now} today onDelete={deleteHello} onEdit={(item) => { setEditing(item.id); setText(item.text); setImage(item.image); }} />
         ))}
       </ul>
       {older.length > 0 && (
@@ -932,7 +971,7 @@ export function HelloComposer() {
               <div className="hw-top">
                 <span>
                   <OptImg className="hw-logo" src={(account?.sellerPlan ?? "free") === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account?.stallAvatar || "/brand/avatars/seller-duck.jpg?v=2"} alt="" />
-                  <b>{account?.displayName || account?.username || (ar ? "دكانك" : "Your stall")}</b>
+                  <b>{account?.displayName || account?.username || (ar ? "دكانك" : "Your shop")}</b>
                 </span>
               </div>
               <div className="hw-photo">
@@ -954,16 +993,21 @@ export function HelloComposer() {
                 type="button"
                 className="yes"
                 onClick={() => {
-                  const res = addHelloPost({ text, lang, image });
-                  if (!res.ok) {
-                    setError(res.error === "limit" ? (ar ? "خلصت مشاركات اليوم." : "That is over the limit for today.") : (ar ? "اكتب سطر وضيف صورة." : "Add a line and a photo."));
+                  void (async () => {
+                    const res = editing
+                      ? await editHelloPost({ id: editing, text, image })
+                      : await addHelloPost({ text, lang, image });
+                    if (!res.ok) {
+                      setError(res.error === "limit" ? (ar ? "خلصت المشاركات لهذه الساعات." : "That is all your plan allows in these 24 hours.") : res.error === "locked" ? (ar ? "خلصت مدة التعديل." : "The 15-minute edit window has closed.") : res.error === "paused" ? (ar ? "انتهت التجربة المجانية. الدكان متوقف." : "Your free trial is done. Your shop is paused.") : (ar ? "اكتب سطر وضيف صورة." : "Add a line and a photo."));
+                      setPreview(false);
+                      return;
+                    }
+                    setText("");
+                    setImage(null);
+                    setEditing(null);
+                    setError("");
                     setPreview(false);
-                    return;
-                  }
-                  setText("");
-                  setImage(null);
-                  setError("");
-                  setPreview(false);
+                  })();
                 }}
               >
                 {ar ? "تأكيد" : "Confirm"}

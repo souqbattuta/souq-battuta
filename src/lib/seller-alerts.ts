@@ -70,7 +70,7 @@ export function buildSellerAlerts(input: {
     alerts.push({
       id: `order:${order.id ?? order.at}`,
       title: order.productName,
-      detail: ar ? "طلب جديد على المكتب." : "A new order is on the desk.",
+      detail: ar ? "طلب جديد على الدكان." : "A new order is on your shop.",
       at: order.at,
       tab: "orders",
       kind: "orders",
@@ -107,23 +107,31 @@ export function buildSellerAlerts(input: {
     });
   }
 
-  if (input.daysLeft != null && input.daysLeft <= 5) {
-    alerts.push({
-      id: `membership:${slug}`,
-      title: input.daysLeft < 0 ? (ar ? "انتهى الاشتراك" : "Membership ended") : ar ? "الاشتراك قرب يخلص" : "Membership is ending",
-      detail:
-        input.daysLeft < 0
-          ? ar
-            ? "جدّد الخطة عشان الدكان يضل ظاهر."
-            : "Renew the plan so the stall stays up."
-          : ar
-            ? `باقي ${input.daysLeft} أيام.`
-            : `${input.daysLeft} days left.`,
-      at: Date.now(),
-      tab: "notes",
-      kind: "plan",
-      action: "fix",
-    });
+  if (typeof input.daysLeft === "number") {
+    const marks = (input.plan ?? "free") === "free" ? [14, 7, 1] : [7, 3, 0];
+    const due = marks.includes(input.daysLeft) || input.daysLeft < 0;
+    if (due) {
+      alerts.push({
+        id: `membership:${slug}:${input.daysLeft < 0 ? "off" : input.daysLeft}`,
+        title: input.daysLeft < 0 ? (ar ? "انتهى الاشتراك" : "Membership ended") : ar ? "الاشتراك قرب يخلص" : "Membership is ending",
+        detail:
+          input.daysLeft < 0
+            ? ar
+              ? "الدكان متوقف والبيانات محفوظة. جدّد ليظهر من جديد."
+              : "The shop is paused and the data is kept. Choose a paid plan to open it again."
+            : input.daysLeft === 0
+              ? ar
+                ? "ينتهي اليوم. جدّد الآن."
+                : "It ends today. Renew now."
+              : ar
+                ? `باقي ${input.daysLeft} أيام. جدّد الآن.`
+                : `${input.daysLeft} days left. Renew now.`,
+        at: Date.now(),
+        tab: "notes",
+        kind: "plan",
+        action: "fix",
+      });
+    }
   }
 
   return alerts.filter((alert) => !input.cleared.includes(alert.id));

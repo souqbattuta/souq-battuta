@@ -1,4 +1,5 @@
-import type { Shop } from "./data";
+import { useLayoutEffect, useState } from "react";
+import { CATEGORIES, type Shop } from "./data.ts";
 
 const CATEGORY_WORDS: Record<string, [string, string]> = {
   food: ["food", "أكل"],
@@ -9,6 +10,19 @@ const CATEGORY_WORDS: Record<string, [string, string]> = {
   clothes: ["clothes", "أواعي"],
   misc: ["misc", "منوع"],
 };
+
+/** Category labels that start a shop's keywords. They do not use a paid slot. */
+export function builtInKeywords(ids: string[] = []) {
+  const words: string[] = [];
+  for (const id of ids) {
+    const cat = CATEGORIES.find((item) => item.id === id);
+    if (!cat || cat.id === "all") continue;
+    words.push(cat.en, cat.ar);
+    const extra = CATEGORY_WORDS[id];
+    if (extra) words.push(extra[0], extra[1]);
+  }
+  return [...new Set(words.map((word) => word.trim()).filter((word) => word.length >= 2))];
+}
 
 export function shopText(shop: Shop) {
   const category = CATEGORY_WORDS[shop.category] ?? [];
@@ -51,33 +65,54 @@ export const DEFAULT_ALGO_ORDER: AlgoLever[] = [
   "fresh",
 ];
 
-const PREVIOUS_ALGO_ORDER = ["words", "visited", "bookmarks", "liked"];
-
 export const WORD_CAP = 12;
 
 export function algoOrder(order?: string[]) {
-  const sameAsPrevious =
-    !!order && order.length === PREVIOUS_ALGO_ORDER.length && PREVIOUS_ALGO_ORDER.every((item, index) => order[index] === item);
-  if (!order?.length || sameAsPrevious) return [...DEFAULT_ALGO_ORDER];
-  const picked = order.filter((item): item is AlgoLever => DEFAULT_ALGO_ORDER.includes(item as AlgoLever));
-  return [...picked, ...DEFAULT_ALGO_ORDER.filter((item) => !picked.includes(item))];
+  const picked = (order ?? []).filter((item): item is AlgoLever => DEFAULT_ALGO_ORDER.includes(item as AlgoLever));
+  const unique = [...new Set(picked)];
+  if (!unique.length) return [...DEFAULT_ALGO_ORDER];
+  return [...unique, ...DEFAULT_ALGO_ORDER.filter((item) => !unique.includes(item))];
 }
+
+function escapeWord(word: string) {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function foldText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Whole word or whole phrase. "art" does not match "party". */
+export function hasWord(text: string, word: string) {
+  const clean = foldText(word);
+  if (clean.length < 2) return false;
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\u0627\\u0644)?${escapeWord(clean)}(?![\\p{L}\\p{N}])`, "iu");
+  return re.test(foldText(text));
+}
+
 export function shopMuted(shop: Shop, mutedWords: string[] = [], mutedStalls: string[] = []) {
   if (mutedStalls.includes(shop.slug)) return true;
   const blob = shopText(shop);
-  return mutedWords.some((word) => word && blob.includes(word.toLowerCase()));
+  return mutedWords.some((word) => hasWord(blob, word));
 }
 
-const MONTH: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
+function daysOld(shop: Shop, now = Date.now()) {
+  const stamp = shop.createdAt || shop.joinedAt;
+  if (typeof stamp !== "number" || stamp <= 0) return 9999;
+  const ms = stamp < 10_000_000_000 ? stamp * 1000 : stamp;
+  return (now - ms) / 86400000;
+}
 
-function sinceKey(since?: string) {
-  if (!since) return 0;
-  const year = Number(since.match(/20\d{2}/)?.[0] ?? 0);
-  if (!year) return 0;
-  return year * 12 + (MONTH[since.toLowerCase().slice(0, 3)] ?? 0);
+export function isDemoShop(shop: Shop) {
+  if (shop.demo || shop.hidden) return true;
+  return /\b(test|demo|sample|placeholder)\b/i.test(`${shop.slug} ${shop.name} ${shop.nameAr}`);
 }
 
 function stallWords(shop: Shop) {
@@ -110,25 +145,26 @@ export function rankForYou(
     referred?: string;
     mutedWords?: string[];
     mutedStalls?: string[];
+    tieSeed?: number;
+    browsedCategories?: string[];
   },
 ) {
-  const words = input.words.map((word) => word.toLowerCase()).filter(Boolean);
+  const words = input.words.map((word) => word.toLowerCase()).filter((word) => word.length >= 2);
   const order = algoOrder(input.order);
   const follows = new Set(input.follows ?? []);
   const ordered = new Set(input.ordered ?? []);
   const shared = new Set(input.shared ?? []);
   const bookmarks = new Set(input.bookmarks);
-  const now = new Date();
-  const nowKey = now.getFullYear() * 12 + now.getMonth();
   const likedSeeds = shops.filter((shop) => shop.products.some((product) => input.favorites.includes(product.id)));
   const followSeeds = shops.filter((shop) => follows.has(shop.slug));
+  const tieSeed = input.tieSeed ?? 0;
   const score = (shop: Shop) => {
     const blob = shopText(shop);
     let value = 0;
     order.forEach((lever, index) => {
-      const weight = (order.length - index) * 100;
+      const weight = order.length - index;
       let hit = 0;
-      if (lever === "words") hit = words.filter((word) => blob.includes(word)).length;
+      if (lever === "words") hit = words.filter((word) => hasWord(blob, word)).length;
       if (lever === "ordered") hit = ordered.has(shop.slug) ? 1 : 0;
       if (lever === "follow") hit = follows.has(shop.slug) ? 1 : 0;
       if (lever === "shared") hit = shared.has(shop.slug) ? 1 : 0;
@@ -136,24 +172,91 @@ export function rankForYou(
       if (lever === "liked") hit = shop.products.some((product) => input.favorites.includes(product.id)) ? 1 : 0;
       if (lever === "visited") {
         const times = input.visits?.[shop.slug] ?? (input.visited?.includes(shop.slug) ? 1 : 0);
-        hit = times > 0 ? 1 : 0;
+        hit = Math.min(times, 5);
       }
       if (lever === "likeSimilar") hit = isSimilar(shop, likedSeeds) ? 1 : 0;
       if (lever === "followSimilar") hit = isSimilar(shop, followSeeds) ? 1 : 0;
       if (lever === "fresh") {
-        const key = sinceKey(shop.since);
-        const age = key ? nowKey - key : 99;
-        hit = age >= 0 && age <= 4 ? 1 : 0;
+        const young = daysOld(shop) <= 30;
+        const matches = words.filter((word) => hasWord(blob, word)).length;
+        const browsed = (input.browsedCategories ?? []).includes(shop.category);
+        if (!young) hit = 0;
+        else if (words.length) {
+          hit = matches ? Math.min(matches, 5) + (matches >= 2 ? 2 : 0) : 0;
+        } else hit = browsed ? 1 : 0;
       }
-      if (hit) value += weight + Math.min(hit, 12);
+      if (hit) value += weight * Math.min(hit, 5);
     });
     if (input.referred && shop.slug === input.referred) value += 1;
-    const boost = shop.plan === "premium" ? 30 : shop.plan === "grow" ? 20 : shop.plan === "basic" ? 10 : 0;
-    return value + boost;
+    return value;
   };
+  const tie = (slug: string) => {
+    let hash = tieSeed >>> 0 || 1;
+    for (const ch of slug) hash = Math.imul(hash ^ ch.charCodeAt(0), 16777619);
+    return hash >>> 0;
+  };
+  const seen = new Set<string>();
   return [...shops]
-    .filter((shop) => !shopMuted(shop, input.mutedWords, input.mutedStalls))
-    .sort((a, b) => score(b) - score(a) || (b.views ?? 0) - (a.views ?? 0));
+    .filter((shop) => {
+      if (!shop?.slug || seen.has(shop.slug) || isDemoShop(shop)) return false;
+      if (!showInForYou(shop)) return false;
+      if (shopMuted(shop, input.mutedWords, input.mutedStalls)) return false;
+      seen.add(shop.slug);
+      return true;
+    })
+    .sort((a, b) => score(b) - score(a) || tie(a.slug) - tie(b.slug));
+}
+
+export function showInForYou(shop: Shop) {
+  const photos = [shop.cover, shop.avatar, ...shop.products.flatMap((product) => product.images ?? [])];
+  return photos.some((src) => typeof src === "string" && src.length > 0 && !/duck\.jpg|placeholder|default-duck/i.test(src));
+}
+
+const PLAN_BOOST: Record<string, number> = { premium: 4, grow: 3, basic: 2, free: 1 };
+
+/** Small nudge for Explore and category browse. Not used by For You. */
+export function browseNudge(plan: string) {
+  return plan === "premium" ? 3 : plan === "grow" ? 2 : plan === "basic" ? 1 : 0;
+}
+
+export function newPlacesShelf(shops: Shop[]) {
+  const seen = new Set<string>();
+  return shops
+    .filter((shop) => {
+      if (!shop?.slug || seen.has(shop.slug) || isDemoShop(shop)) return false;
+      if (!showInForYou(shop)) return false;
+      if (daysOld(shop) > 30) return false;
+      seen.add(shop.slug);
+      return true;
+    })
+    .sort((a, b) => (PLAN_BOOST[b.plan] ?? 1) - (PLAN_BOOST[a.plan] ?? 1) || (b.createdAt ?? b.joinedAt ?? 0) - (a.createdAt ?? a.joinedAt ?? 0));
+}
+
+export function readTieSeed() {
+  const key = "souq-tie-seed";
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (saved) return Number(saved) || 1;
+  } catch {
+    /* private mode */
+  }
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  const n = buf[0] || 1;
+  try {
+    sessionStorage.setItem(key, String(n));
+  } catch {
+    /* ignore */
+  }
+  return n;
+}
+
+export function useTieSeed() {
+  const [seed, setSeed] = useState(0);
+  useLayoutEffect(() => {
+    setSeed(readTieSeed());
+  }, []);
+  return seed;
 }
 
 export function journeyHint(
@@ -170,7 +273,8 @@ export function journeyHint(
     tally.set(clean, (tally.get(clean) ?? 0) + times);
   };
   for (const shop of seen) {
-    const times = input.counts[shop.slug] ?? 1;
+    const times = input.counts[shop.slug] ?? 0;
+    if (times < 1) continue;
     const category = CATEGORY_WORDS[shop.category];
     if (category) add(input.ar ? category[1] : category[0], times);
     for (const word of shop.keywords ?? []) add(word, times);

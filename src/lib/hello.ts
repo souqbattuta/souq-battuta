@@ -1,5 +1,5 @@
 import type { PlanId, Shop } from "./data";
-import { shopText } from "./shelves";
+import { hasWord } from "./shelves.ts";
 
 export type HelloPost = {
   id: string;
@@ -7,10 +7,15 @@ export type HelloPost = {
   text: string;
   lang: "en" | "ar";
   image: string;
+  full?: string;
   at: number;
   views: number;
   reported?: boolean;
   hearts?: number;
+  expiresAt?: number;
+  editUntil?: number;
+  status?: "live" | "hidden" | "removed";
+  thumb?: string;
 };
 
 export type HelloHandle = {
@@ -20,10 +25,22 @@ export type HelloHandle = {
   at: number;
 };
 
-export const HELLO_CAP: Record<PlanId, number> = { free: 0, basic: 2, grow: 3, premium: 5 };
+export const HELLO_CAP: Record<PlanId, number> = { free: 1, basic: 2, grow: 3, premium: 5 };
+export const HELLO_WINDOW = 24 * 60 * 60 * 1000;
+export const HELLO_EDIT = 15 * 60 * 1000;
 
 export function ammanDay(ts = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Amman" }).format(new Date(ts));
+}
+
+export function helloLive(post: HelloPost, now = Date.now()) {
+  if (post.status === "hidden" || post.status === "removed") return false;
+  const end = post.expiresAt ?? post.at + HELLO_WINDOW;
+  return end > now;
+}
+
+export function postsToday(posts: HelloPost[], now = Date.now()) {
+  return posts.filter((post) => helloLive(post, now));
 }
 
 export function toHandle(name: string) {
@@ -80,11 +97,6 @@ export function splitHandles(text: string, handles: string[]): HelloPart[] {
   return parts.length ? parts : [{ text }];
 }
 
-export function postsToday(posts: HelloPost[], now = Date.now()) {
-  const day = ammanDay(now);
-  return posts.filter((post) => ammanDay(post.at) === day);
-}
-
 export const SAMPLE_HANDLES: HelloHandle[] = [
   {
     handle: "@Jara",
@@ -120,30 +132,23 @@ export function boardHandles(handles: HelloHandle[]) {
   return [...handles, ...SAMPLE_HANDLES.filter((item) => !have.has(item.handle.toLowerCase()))];
 }
 
-export function homeHello(posts: HelloPost[], follows: string[]) {
-  const latest = new Map<string, HelloPost>();
-  for (const post of [...posts].sort((a, b) => b.at - a.at)) {
-    if (!latest.has(post.shopSlug)) latest.set(post.shopSlug, post);
-  }
-  return [...latest.values()]
-    .sort((a, b) => Number(follows.includes(b.shopSlug)) - Number(follows.includes(a.shopSlug)) || b.at - a.at)
-    .slice(0, 6);
+export function homeHello(posts: HelloPost[], follows: string[], words: string[] = []) {
+  return rankHello(posts, { words, follows, shops: [] }).slice(0, 6);
 }
 
 export function rankHello(
   posts: HelloPost[],
-  input: { words: string[]; follows: string[]; pageLikes: string[]; helloHearts: string[]; shops: Shop[] },
+  input: { words: string[]; follows: string[]; shops: Shop[] },
 ) {
-  const hasSignal = input.words.length > 0 || input.follows.length > 0 || input.pageLikes.length > 0;
-  if (!hasSignal) return [...posts].sort((a, b) => b.at - a.at);
+  const follows = new Set(input.follows);
   const bySlug = new Map(input.shops.map((shop) => [shop.slug, shop]));
   const score = (post: HelloPost) => {
     const shop = bySlug.get(post.shopSlug);
     let value = 0;
-    if (input.follows.includes(post.shopSlug)) value += 5;
-    if (input.pageLikes.includes(post.shopSlug)) value += 3;
-    if (input.helloHearts.includes(post.id)) value += 1;
-    if (shop && input.words.some((word) => shopText(shop).includes(word.toLowerCase()))) value += 4;
+    if (follows.has(post.shopSlug)) value += 100;
+    const blob = `${post.text} ${shop?.name ?? ""} ${shop?.nameAr ?? ""} ${(shop?.keywords ?? []).join(" ")} ${shop?.category ?? ""}`;
+    const hits = input.words.filter((word) => hasWord(blob, word)).length;
+    value += Math.min(hits, 5) * 10;
     return value;
   };
   return [...posts].sort((a, b) => score(b) - score(a) || b.at - a.at);
