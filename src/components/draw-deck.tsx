@@ -11,6 +11,7 @@ import { PlanStamp } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
 import { StallPeek } from "@/components/shop-shelf";
 import { OptImg } from "@/components/opt-img";
+import { photoControlName } from "@/lib/photo-label";
 
 type StoreDraw = { key: string; shop: Shop };
 type ItemDraw = { key: string; shop: Shop; product: Product };
@@ -265,7 +266,7 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
                 const name = item ? (ar ? item.nameAr : item.name) : ar ? shop.nameAr : shop.name;
                 const image = item ? item.images[0] || shop.avatar : leadPhoto(shop);
                 return (
-                  <button key={card.key} type="button" className="stall-card" onClick={() => setOpen(at)}>
+                  <button key={card.key} type="button" className="stall-card photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name, item ? (ar ? item.nameAr : item.name) : undefined)} onClick={() => setOpen(at)}>
                     <span className="stall-card-inner">
                       <span className="stall-face-phone">
                         <span className="stall-phone-shot">
@@ -290,7 +291,7 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
               const title = item ? (ar ? item.nameAr : item.name) : ar ? shop.nameAr : shop.name;
               const image = item ? item.images[0] || shop.avatar : shop.cover || shop.avatar;
               return (
-                <button key={card.key} type="button" className="stall-card draw-card" onClick={() => setOpen(at)}>
+                <button key={card.key} type="button" className="stall-card draw-card photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name, item ? (ar ? item.nameAr : item.name) : undefined)} onClick={() => setOpen(at)}>
                   <span className="stall-card-catrow">
                     <PlanStamp plan={shop.plan} className="plan-badge" />
                   </span>
@@ -307,7 +308,9 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
           </div>
           {pages > 1 && (
             <button type="button" className="shelf-arrow" aria-label={ar ? "التالي" : "Next"} onClick={() => setPage((safePage + 1) % pages)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
+              <span className="shelf-arrow-face">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
+              </span>
             </button>
           )}
         </div>
@@ -392,7 +395,7 @@ function DrawPop({
       <button type="button" className="draw-side draw-prev" aria-label={ar ? "السابق" : "Previous"} onClick={(event) => { event.stopPropagation(); onPrev(); }}>‹</button>
       <div className="draw-sheet" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="draw-x" aria-label={ar ? "إغلاق" : "Close"} onClick={onClose}>×</button>
-        <Link to="/shop/$slug" params={{ slug: shop.slug }} className="draw-photo">
+        <Link to="/shop/$slug" params={{ slug: shop.slug }} className="draw-photo photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name, item ? (ar ? item.nameAr : item.name) : undefined)}>
           <OptImg src={photo} alt="" />
         </Link>
         {item ? (

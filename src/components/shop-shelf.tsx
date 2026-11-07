@@ -7,6 +7,7 @@ import { HeartIcon } from "@/components/heart";
 import { DuckRating } from "@/components/duck-rating";
 import { OptImg } from "@/components/opt-img";
 import { useSession } from "@/lib/session";
+import { photoControlName } from "@/lib/photo-label";
 
 const PEEK_KEY = "souq-peek";
 
@@ -83,6 +84,35 @@ const CAT_IDS = ["food", "crafts", "plants", "beauty", "pets", "clothes", "misc"
 
 export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const measure = () => {
+      const max = Math.max(0, el.scrollWidth - el.clientWidth);
+      const pos = Math.abs(el.scrollLeft);
+      setEdges({
+        overflow: max > 8,
+        atStart: pos <= 8,
+        atEnd: max <= 8 || pos >= max - 8,
+      });
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    el.addEventListener("load", measure, true);
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    for (const child of el.children) watch.observe(child);
+    window.addEventListener("resize", measure);
+    const later = window.setTimeout(measure, 400);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      el.removeEventListener("load", measure, true);
+      window.removeEventListener("resize", measure);
+      window.clearTimeout(later);
+      watch.disconnect();
+    };
+  }, [ar]);
   function step(dir: number) {
     const el = scroller.current;
     if (!el) return;
@@ -90,10 +120,12 @@ export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
     el.scrollBy({ left: toward * Math.max(160, el.clientWidth * 0.72), behavior: "smooth" });
   }
   return (
-    <div className="cat-rail">
-      <button type="button" className="shelf-arrow is-prev cat-rail-arrow" aria-label={ar ? "السابق" : "Previous"} onClick={() => step(-1)}>
-        <Chevron />
-      </button>
+    <div className={edges.overflow ? "cat-rail is-scroll" : "cat-rail"} data-overflow={edges.overflow ? "yes" : "no"}>
+      {edges.overflow && (
+        <button type="button" className="shelf-arrow is-prev cat-rail-arrow" aria-label={ar ? "السابق" : "Previous"} disabled={edges.atStart} onClick={() => step(-1)}>
+          <Chevron />
+        </button>
+      )}
       <div className="home-cats" ref={scroller}>
         {CAT_IDS.map((id) => {
           const c = CATEGORIES.find((item) => item.id === id)!;
@@ -110,9 +142,11 @@ export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
           );
         })}
       </div>
-      <button type="button" className="shelf-arrow cat-rail-arrow" aria-label={ar ? "التالي" : "Next"} onClick={() => step(1)}>
-        <Chevron />
-      </button>
+      {edges.overflow && (
+        <button type="button" className="shelf-arrow cat-rail-arrow" aria-label={ar ? "التالي" : "Next"} disabled={edges.atEnd} onClick={() => step(1)}>
+          <Chevron />
+        </button>
+      )}
     </div>
   );
 }
@@ -150,9 +184,10 @@ export function ShopTiles({
         return (
           <article
             key={shop.slug}
-            className="stall-card"
+            className="stall-card photo-open"
             role="button"
             tabIndex={0}
+            aria-label={photoControlName(ar ? "ar" : "en", name)}
             onClick={() => (onPhoto ? onPhoto(index) : peek.remember(index))}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -581,6 +616,7 @@ export function StallPeek({
   const start = useRef(0);
   const swiped = useRef(false);
   const sheet = useRef<HTMLDivElement>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
   const place = useRef<Record<string, number>>({});
   const seeded = useRef(false);
   const restoring = useRef(true);
@@ -602,6 +638,14 @@ export function StallPeek({
       restoring.current = false;
     }, 50);
     return () => window.clearTimeout(timer);
+  }, [shop?.slug]);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const timer = window.setTimeout(() => closeBtn.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      previous?.focus?.();
+    };
   }, [shop?.slug]);
   useEffect(() => {
     const previous = document.body.style.overflow;
@@ -674,18 +718,18 @@ export function StallPeek({
           </Link>
           <span className="peek-tools">
             <PeekMenu shop={shop} ar={ar} />
-            <button type="button" className="draw-x" aria-label={ar ? "إغلاق" : "Close"} onClick={onClose}>×</button>
+            <button type="button" ref={closeBtn} className="draw-x photo-open" aria-label={ar ? "إغلاق" : "Close"} onClick={onClose}>×</button>
           </span>
         </div>
         {focus ? (
           <>
-            <Link to="/shop/$slug" params={{ slug: shop.slug }} className="peek-one">
+            <Link to="/shop/$slug" params={{ slug: shop.slug }} className="peek-one photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name, focus.title)}>
               <OptImg src={focus.image} alt="" />
             </Link>
             <p className={ar ? "peek-product font-arabic" : "peek-product"}>{focus.title}</p>
           </>
         ) : (
-        <Link to="/shop/$slug" params={{ slug: shop.slug }} className="stall-card-photos peek-photos">
+        <Link to="/shop/$slug" params={{ slug: shop.slug }} className="stall-card-photos peek-photos photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name)}>
           <OptImg className="stall-card-photo" src={pics.lead} alt="" />
           <span className="stall-card-side">
             {pics.side.map((pic, picIndex) => (
@@ -808,8 +852,10 @@ function ShelfDots({ pages, page, onPick, ar }: { pages: number; page: number; o
 
 function Chevron() {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-      <path d="M7 4.5 12 9l-5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <span className="shelf-arrow-face">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path d="M7 4.5 12 9l-5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
   );
 }

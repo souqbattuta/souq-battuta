@@ -110,9 +110,15 @@ function daysOld(shop: Shop, now = Date.now()) {
   return (now - ms) / 86400000;
 }
 
-export function isDemoShop(shop: Shop) {
-  if (shop.demo || shop.hidden) return true;
-  return /\b(test|demo|sample|placeholder)\b/i.test(`${shop.slug} ${shop.name} ${shop.nameAr}`);
+/** Explicit internal flag only. A real shop whose name contains "test" is not a demo. */
+export function isDemoShop(shop: { demo?: boolean }) {
+  return shop.demo === true;
+}
+
+/** Production buyer catalogs drop demo shops. Hidden is a separate moderation flag. */
+export function buyerVisibleShops<T extends { demo?: boolean }>(shops: T[], production: boolean) {
+  if (!production) return shops;
+  return shops.filter((shop) => !isDemoShop(shop));
 }
 
 function stallWords(shop: Shop) {
@@ -198,7 +204,7 @@ export function rankForYou(
   const seen = new Set<string>();
   return [...shops]
     .filter((shop) => {
-      if (!shop?.slug || seen.has(shop.slug) || isDemoShop(shop)) return false;
+      if (!shop?.slug || seen.has(shop.slug) || shop.hidden || isDemoShop(shop)) return false;
       if (!showInForYou(shop)) return false;
       if (shopMuted(shop, input.mutedWords, input.mutedStalls)) return false;
       seen.add(shop.slug);
@@ -223,7 +229,7 @@ export function newPlacesShelf(shops: Shop[]) {
   const seen = new Set<string>();
   return shops
     .filter((shop) => {
-      if (!shop?.slug || seen.has(shop.slug) || isDemoShop(shop)) return false;
+      if (!shop?.slug || seen.has(shop.slug) || shop.hidden || isDemoShop(shop)) return false;
       if (!showInForYou(shop)) return false;
       if (daysOld(shop) > 30) return false;
       seen.add(shop.slug);

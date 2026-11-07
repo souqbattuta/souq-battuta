@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { AnimalRule } from "@/components/animal-rule";
+import { Shell } from "@/components/site-header";
 
 export const Route = createFileRoute("/privacy")({ component: PrivacyPage });
 

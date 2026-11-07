@@ -349,7 +349,9 @@ export function SiteFooter() {
           <Link to="/privacy">{t.privacy}</Link>
           <Link to="/contact">{ar ? "تواصل" : "Contact"}</Link>
           <Link to="/desk">{ar ? "مكتب السوق" : "Souq Desk"}</Link>
-          <Link to="/checklist">{ar ? "قائمة التجربة" : "Test List"}</Link>
+          {!import.meta.env.PROD && (
+            <Link to="/checklist">{ar ? "قائمة التجربة" : "Test List"}</Link>
+          )}
         </div>
       </nav>
       <p className="site-footer-copy">© Souq Battuta · {t.cityName}</p>

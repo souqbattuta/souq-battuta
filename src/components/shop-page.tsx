@@ -12,6 +12,9 @@ import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
 import { AnimalRule } from "@/components/animal-rule";
+import { AnimalSaleNotice } from "@/components/animal-sale-notice";
+import { photoControlName } from "@/lib/photo-label";
+import { sectionsWithMatches } from "@/lib/shop-search";
 
 function optionNote(option: { reason?: "unavailable" | "stock" | "sold"; back?: string }, ar: boolean) {
   const reason = { unavailable: ["Unavailable", "غير متاح"], stock: ["Out of stock", "نفدت الكمية"], sold: ["Sold out", "تم البيع"] }[option.reason ?? "sold"];
@@ -33,7 +36,7 @@ function useShopChrome(shop: Shop) {
   const [photo, setPhoto] = useState(0);
   const [qty, setQty] = useState(1);
   const [reportOn, setReportOn] = useState(false);
-  const [shot, setShot] = useState<{ src?: string; images?: string[]; index?: number; title: string; text?: string } | null>(null);
+  const [shot, setShot] = useState<{ src?: string; images?: string[]; index?: number; title: string; text?: string; label?: string } | null>(null);
   const images = active?.images ?? [];
   const name = lang === "ar" ? shop.nameAr : shop.name;
   const area = lang === "ar" ? shop.areaAr : shop.area;
@@ -312,11 +315,6 @@ function picksReady(product: Product, picks: number[]) {
   });
 }
 
-function productMatches(product: Product, query: string) {
-  if (!query) return true;
-  return `${product.name} ${product.nameAr} ${product.desc} ${product.descAr} ${product.group ?? ""} ${product.groupAr ?? ""}`.toLowerCase().includes(query);
-}
-
 function StallNote({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
   const note = shop.isOpen === false
     ? lang === "ar" ? shop.closedNoteAr || shop.closedNote : shop.closedNote || shop.closedNoteAr
@@ -461,23 +459,51 @@ function PhotoFrame({
   shot,
   onClose,
 }: {
-  shot: { src?: string; images?: string[]; index?: number; title: string; text?: string } | null;
+  shot: { src?: string; images?: string[]; index?: number; title: string; text?: string; label?: string } | null;
   onClose: () => void;
 }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const restore = useRef<HTMLElement | null>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   const images = shot?.images?.length ? shot.images : shot?.src ? [shot.src] : [];
   const [index, setIndex] = useState(shot?.index ?? 0);
+  const open = Boolean(shot && images.length);
   useEffect(() => setIndex(shot?.index ?? 0), [shot]);
+  useEffect(() => {
+    if (!open) return;
+    restore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const timer = window.setTimeout(() => closeRef.current?.focus(), 0);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", onKey);
+      restore.current?.focus?.();
+    };
+  }, [open]);
   if (!shot || images.length === 0) return null;
   const n = images.length;
   const src = images[index] ?? images[0];
+  const label = shot.label || photoControlName("en", shot.title);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4" onClick={onClose}>
-      <div className="relative w-full max-w-3xl overflow-hidden rounded-xl bg-paper shadow-md" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="relative w-full max-w-3xl overflow-hidden rounded-xl bg-paper shadow-md"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-3 pt-2">
           <p className="text-xs text-mute">
             {index + 1} / {n}
           </p>
-          <button type="button" onClick={onClose} className="size-11 text-xl" aria-label="Close">
+          <button type="button" ref={closeRef} onClick={onClose} className="photo-open size-11 text-xl" aria-label="Close">
             ×
           </button>
         </div>
@@ -487,7 +513,7 @@ function PhotoFrame({
             <>
               <button
                 type="button"
-                className="absolute start-3 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-cream text-xl text-ink shadow-md"
+                className="photo-open absolute start-3 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-cream text-xl text-ink shadow-md"
                 aria-label="Previous photo"
                 onClick={() => setIndex((index + n - 1) % n)}
               >
@@ -495,7 +521,7 @@ function PhotoFrame({
               </button>
               <button
                 type="button"
-                className="absolute end-3 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-cream text-xl text-ink shadow-md"
+                className="photo-open absolute end-3 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-cream text-xl text-ink shadow-md"
                 aria-label="Next photo"
                 onClick={() => setIndex((index + 1) % n)}
               >
@@ -517,12 +543,14 @@ function Gallery({
   photo,
   setPhoto,
   title,
+  label,
   onOpen,
 }: {
   images: string[];
   photo: number;
   setPhoto: (n: number) => void;
   title: string;
+  label: string;
   onOpen: (src: string) => void;
 }) {
   const n = images.length || 1;
@@ -530,7 +558,7 @@ function Gallery({
     <div>
       <div className="relative overflow-hidden rounded-lg bg-[#2a261f]">
         {images[photo] ? (
-          <button type="button" className="block w-full" onClick={() => onOpen(images[photo])}>
+          <button type="button" className="photo-open block w-full" aria-label={label} onClick={() => onOpen(images[photo])}>
             <OptImg src={images[photo]} alt={title} className="aspect-[4/3] w-full object-cover" />
           </button>
         ) : (
@@ -651,6 +679,7 @@ function ItemEdit({
 function MenuTile({
   product,
   lang,
+  sellerName,
   own,
   seller,
   loved,
@@ -661,6 +690,7 @@ function MenuTile({
 }: {
   product: Product;
   lang: "en" | "ar";
+  sellerName: string;
   own: boolean;
   seller: boolean;
   loved: boolean;
@@ -676,7 +706,7 @@ function MenuTile({
   const subs = rest.slice(0, 3);
   return (
     <article className="shop-tile">
-      <button type="button" className="shop-tile-media" onClick={onOpen}>
+      <button type="button" className="shop-tile-media photo-open" aria-label={photoControlName(lang, sellerName, copy.title)} onClick={onOpen}>
         <OptImg src={main || "/brand/avatars/default-duck.jpg"} alt="" />
       </button>
       {subs.length > 0 && (
@@ -715,6 +745,7 @@ function MenuTile({
 function OrderLine({
   product,
   lang,
+  sellerName,
   qty,
   onOpen,
   onAdd,
@@ -723,6 +754,7 @@ function OrderLine({
 }: {
   product: Product;
   lang: "en" | "ar";
+  sellerName: string;
   qty: number;
   onOpen: () => void;
   onAdd: () => void;
@@ -732,7 +764,7 @@ function OrderLine({
   const name = lang === "ar" ? product.nameAr : product.name;
   return (
     <li id={`item-${product.id}`} className="flex items-center gap-3 px-3 py-2.5">
-      <button type="button" className="shrink-0" onClick={onOpen}>
+      <button type="button" className="photo-open shrink-0" aria-label={photoControlName(lang, sellerName, name)} onClick={onOpen}>
         <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" className="size-14 rounded-md object-cover" />
       </button>
       <button type="button" className="min-w-0 flex-1 text-start" onClick={onOpen}>
@@ -771,6 +803,7 @@ function FreeShop({ shop }: { shop: Shop }) {
       index,
       title: pname,
       text: `${priceLabel(p, ui.lang)}\n${pdesc}`,
+      label: photoControlName(ui.lang, name, pname),
     });
   }
   return (
@@ -781,14 +814,17 @@ function FreeShop({ shop }: { shop: Shop }) {
           <div className="bg-sand px-5 pb-6 pt-5">
             <button
               type="button"
-              className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}` })}
+              className="photo-open block rounded-full"
+              aria-label={photoControlName(ui.lang, name)}
+              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
             >
               <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} alt="" className="size-28 rounded-full bg-paper object-cover ring-4 ring-cream" />
             </button>
           </div>
           <div className="border-t-4 border-gold px-5 py-5">
             <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
+            <AnimalSaleNotice />
+            <div className="mt-3"><AnimalRule ar={ui.lang === "ar"} /></div>
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
             {!ui.own && (
               <>
@@ -838,6 +874,7 @@ function FreeShop({ shop }: { shop: Shop }) {
                     <MenuTile
                       product={p}
                       lang={ui.lang}
+                      sellerName={name}
                       own={ui.own}
                       seller={ui.seller}
                       loved={ui.fav(p.id)}
@@ -907,7 +944,7 @@ function BasicShop({ shop }: { shop: Shop }) {
     const pname = ui.lang === "ar" ? p.nameAr : p.name;
     const pdesc = ui.lang === "ar" ? p.descAr : p.desc;
     ui.setActive(p);
-    ui.setShot({ images: p.images, index, title: pname, text: `${priceLabel(p, ui.lang)}\n${pdesc}` });
+    ui.setShot({ images: p.images, index, title: pname, text: `${priceLabel(p, ui.lang)}\n${pdesc}`, label: photoControlName(ui.lang, name, pname) });
   }
   return (
     <>
@@ -916,8 +953,9 @@ function BasicShop({ shop }: { shop: Shop }) {
         <div className="px-4 sm:px-8">
           <button
             type="button"
-            className="relative block h-40 w-full overflow-hidden rounded-xl border border-line sm:h-52"
-            onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio })}
+            className="photo-open relative block h-40 w-full overflow-hidden rounded-xl border border-line sm:h-52"
+            aria-label={photoControlName(ui.lang, name)}
+            onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
           >
             <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
           </button>
@@ -928,8 +966,9 @@ function BasicShop({ shop }: { shop: Shop }) {
           <div className="bg-sand px-5 pb-6 pt-5">
             <button
               type="button"
-              className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}` })}
+              className="photo-open block rounded-full"
+              aria-label={photoControlName(ui.lang, name)}
+              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
             >
               <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} alt="" className="size-28 rounded-full bg-paper object-cover ring-4 ring-cream" />
             </button>
@@ -939,6 +978,7 @@ function BasicShop({ shop }: { shop: Shop }) {
               <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
               <Crown plan="basic" className="plan-badge profile-badge" />
             </div>
+            <AnimalSaleNotice />
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
             <p className={cn("mt-2 text-sm font-semibold", shop.isOpen ? "text-stamp-green" : "text-mute")}>
               {shop.isOpen ? `● ${t.open}` : `● ${t.closed}`}
@@ -1005,6 +1045,7 @@ function BasicShop({ shop }: { shop: Shop }) {
                     <MenuTile
                       product={p}
                       lang={ui.lang}
+                      sellerName={name}
                       own={ui.own}
                       seller={ui.seller}
                       loved={ui.fav(p.id)}
@@ -1179,6 +1220,7 @@ function GrowShop({ shop }: { shop: Shop }) {
   const [sectionKey, setSectionKey] = useState("");
   const sections = useMemo(() => menuGroups(shop.products).filter((group) => group.items.length > 0), [shop.products]);
   const shown = sectionKey ? sections.filter((group) => group.key === sectionKey) : sections;
+  const matched = sectionsWithMatches(shown, query);
   const productIds = useMemo(() => new Set(shop.products.map((p) => p.id)), [shop.products]);
   const liveLikers = Object.values(accounts).filter(
     (account) =>
@@ -1221,6 +1263,7 @@ function GrowShop({ shop }: { shop: Shop }) {
       index: 0,
       title: ar ? p.nameAr : p.name,
       text: `${priceLabel(p, ui.lang)}\n${ar ? p.descAr : p.desc}`,
+      label: photoControlName(ui.lang, name, ar ? p.nameAr : p.name),
     });
   }
 
@@ -1230,8 +1273,9 @@ function GrowShop({ shop }: { shop: Shop }) {
       <div className="px-4 sm:px-8">
         <button
           type="button"
-          className="relative block h-52 w-full overflow-hidden rounded-2xl border border-ink/10 shadow-sm sm:h-64"
-          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ar ? shop.bioAr : shop.bio })}
+          className="photo-open relative block h-52 w-full overflow-hidden rounded-2xl border border-ink/10 shadow-sm sm:h-64"
+          aria-label={photoControlName(ui.lang, name)}
+          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ar ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
         >
           <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
           <span className="absolute inset-0 bg-gradient-to-t from-ink/70 via-ink/10 to-transparent" />
@@ -1246,8 +1290,9 @@ function GrowShop({ shop }: { shop: Shop }) {
           <div className="flex items-end justify-between bg-ink px-5 pb-5 pt-5 text-cream">
             <button
               type="button"
-              className="-mb-10 block rounded-full"
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}` })}
+              className="photo-open -mb-10 block rounded-full"
+              aria-label={photoControlName(ui.lang, name)}
+              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
             >
               <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} className="size-24 rounded-full bg-paper object-cover ring-4 ring-gold" />
             </button>
@@ -1272,6 +1317,7 @@ function GrowShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan={shop.plan} className="plan-badge profile-badge" />
             </h1>
+            <AnimalSaleNotice />
             <div className="mt-4 overflow-hidden rounded-lg border-2 border-ink bg-ink text-center text-cream">
               <div className="flex items-center justify-center gap-2 px-3 py-3">
                 <span
@@ -1344,21 +1390,32 @@ function GrowShop({ shop }: { shop: Shop }) {
               value={itemQuery}
               onChange={(event) => setItemQuery(event.target.value)}
               placeholder={ar ? "ابحث في هذا الدكان" : "Search this stall"}
+              aria-label={ar ? "ابحث في هذا الدكان" : "Search this stall"}
               className="mt-4 h-11 w-full rounded-lg border border-line bg-white px-3 text-sm"
             />
           )}
           <div className="mt-6 space-y-8">
-            {shown.map((section) => (
+            {query && matched.length === 0 ? (
+              <div className="shop-search-empty" role="status">
+                <p lang="en">No matching items</p>
+                <p lang="ar" dir="rtl">لا توجد منتجات مطابقة</p>
+                <button type="button" onClick={() => setItemQuery("")}>
+                  <span lang="en">Clear search</span>
+                  <span lang="ar" dir="rtl">مسح البحث</span>
+                </button>
+              </div>
+            ) : matched.map((section) => (
               <div key={section.key} id={`cat-${section.key}`}>
                 {!sectionKey && <h2 className="font-display text-2xl text-ink">{ar ? section.titleAr : section.title}</h2>}
                 {!sectionKey && <div className="mt-2 h-px bg-line" />}
                 {tab === "order" && !ui.own ? (
                 <ul className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
-                  {section.items.filter((item) => productMatches(item, query)).map((p) => (
+                  {section.items.map((p) => (
                     <OrderLine
                       key={p.id}
                       product={p}
                       lang={ui.lang}
+                      sellerName={name}
                       qty={counts[p.id] ?? 0}
                       onOpen={() => openItem(p)}
                       onAdd={() => setDraft({ id: p.id, qty: Math.max(1, counts[p.id] ?? 1), note: notes[p.id] ?? "", picks: chosen[p.id] ?? defaultPicks(p) })}
@@ -1369,11 +1426,12 @@ function GrowShop({ shop }: { shop: Shop }) {
                 </ul>
                 ) : (
                 <ul className="menu-grid mt-3">
-                  {section.items.filter((item) => productMatches(item, query)).map((p) => (
+                  {section.items.map((p) => (
                     <li key={p.id} id={`item-${p.id}`}>
                       <MenuTile
                         product={p}
                         lang={ui.lang}
+                        sellerName={name}
                         own={!!ui.own}
                         seller={!!ui.seller}
                         loved={ui.fav(p.id)}
@@ -1554,7 +1612,7 @@ function GrowShop({ shop }: { shop: Shop }) {
                     </div>
                   ))}
                   {item.chart && (
-                    <button type="button" className="mt-4 block" onClick={() => ui.setShot({ src: item.chart, title: ar ? "الجدول" : "Chart" })}>
+                    <button type="button" className="photo-open mt-4 block" aria-label={photoControlName(ui.lang, name, ar ? "الجدول" : "Chart")} onClick={() => ui.setShot({ src: item.chart, title: ar ? "الجدول" : "Chart", label: photoControlName(ui.lang, name, ar ? "الجدول" : "Chart") })}>
                       <OptImg src={item.chart} alt="" className="h-24 rounded-md border border-line object-cover" />
                       <span className="mt-1 block text-xs font-semibold underline">{ar ? "شوف الجدول" : "View chart"}</span>
                     </button>
@@ -1609,8 +1667,9 @@ function PremiumShop({ shop }: { shop: Shop }) {
       <div className="relative">
         <button
           type="button"
-          className="block w-full"
-          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio })}
+          className="photo-open block w-full"
+          aria-label={photoControlName(ui.lang, name)}
+          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
         >
           <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="h-56 w-full sm:h-80" />
         </button>
@@ -1630,7 +1689,7 @@ function PremiumShop({ shop }: { shop: Shop }) {
       <main className="grid items-start gap-8 px-4 pb-16 sm:px-8 lg:grid-cols-3">
         <aside className="lg:col-span-1">
         <div className="-mt-10 flex flex-wrap items-end gap-4">
-          <button type="button" onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}` })}>
+          <button type="button" className="photo-open" aria-label={photoControlName(ui.lang, name)} onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}>
             <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} className="size-28 rounded-md border-4 border-paper object-cover shadow-md" />
           </button>
           <div>
@@ -1638,6 +1697,7 @@ function PremiumShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan="premium" className="plan-badge profile-badge" />
             </h1>
+            <AnimalSaleNotice />
             <p className="text-mute">
               {area} · {t.cityName} · {shop.since}
             </p>
@@ -1695,11 +1755,14 @@ function PremiumShop({ shop }: { shop: Shop }) {
             >
               <button
                 type="button"
+                className="photo-open"
+                aria-label={photoControlName(ui.lang, name, ui.lang === "ar" ? p.nameAr : p.name)}
                 onClick={() =>
                   ui.setShot({
                     src: p.images[0],
                     title: ui.lang === "ar" ? p.nameAr : p.name,
                     text: `${priceLabel(p, ui.lang)}\n${ui.lang === "ar" ? p.descAr : p.desc}`,
+                    label: photoControlName(ui.lang, name, ui.lang === "ar" ? p.nameAr : p.name),
                   })
                 }
               >
@@ -1725,11 +1788,13 @@ function PremiumShop({ shop }: { shop: Shop }) {
               photo={ui.photo}
               setPhoto={ui.setPhoto}
               title={active.name}
+              label={photoControlName(ui.lang, name, ui.lang === "ar" ? active.nameAr : active.name)}
               onOpen={(src) =>
                 ui.setShot({
                   src,
                   title: ui.lang === "ar" ? active.nameAr : active.name,
                   text: `${priceLabel(active, ui.lang)}\n${ui.lang === "ar" ? active.descAr : active.desc}`,
+                  label: photoControlName(ui.lang, name, ui.lang === "ar" ? active.nameAr : active.name),
                 })
               }
             />

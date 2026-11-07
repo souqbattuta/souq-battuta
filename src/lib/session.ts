@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { HELLO_CAP, HELLO_EDIT, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
-import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, hasWord, shopMuted, shopText } from "./shelves";
+import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, buyerVisibleShops, hasWord, shopMuted, shopText } from "./shelves";
 export type BookmarkList = any;
 export type BuyerAccount = any;
 export type FollowedList = any;
@@ -189,6 +189,7 @@ function sellerByPublicSlug(slug: any, accounts: any) {
   });
 }
 function publicProduct(item: any, premium: any) {
+  if (item?.demo === true && import.meta.env.PROD) return null;
   if (item.hidden && !premium) return null;
   const { shopSlug: _shop, hidden, ...product } = item;
   if (!hidden) return product;
@@ -325,7 +326,8 @@ function directoryShops(accounts: any): Shop[] {
         ].filter((word: string) => !(account.droppedKeywords ?? []).some((drop: string) => drop.toLowerCase() === word.toLowerCase()))),
       ],
       socials: publicSocials(account),
-      km: 0
+      km: 0,
+      demo: account.demo === true,
     });
   }
   const catalog: Shop[] = [];
@@ -335,7 +337,7 @@ function directoryShops(accounts: any): Shop[] {
     ids.add(shop.slug);
     catalog.push(shop);
   }
-  return catalog;
+  return buyerVisibleShops(catalog, import.meta.env.PROD);
 }
 function alertNotes(get: any, words: any) {
   const ar = get().lang === "ar";

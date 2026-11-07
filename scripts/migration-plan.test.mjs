@@ -64,6 +64,7 @@ test("the auth schema ships outside the globbed directory", () => {
   assert.ok(pending.includes("0004_hello_trial_reports.sql"));
   assert.ok(pending.includes("0005_shop_public.sql"));
   assert.ok(pending.includes("0006_listing_images.sql"));
+  assert.ok(pending.includes("0007_shop_demo.sql"));
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes(AUTH_MIGRATION));
 });
 

@@ -746,6 +746,7 @@ export const pushSouq = createServerFn({ method: "POST" })
           avatar_url = ${avatar},
           cover_url = ${cover},
           thumb_url = ${avatar},
+          demo = case when ${next.demo === true} then true else demo end,
           updated_at = now()
         where slug = ${account.shop_slug} and owner_phone = ${phone}
       `;
@@ -1217,6 +1218,8 @@ export const listPublicShops = createServerFn({ method: "GET" })
       from souq_shops s
       join souq_accounts a on a.phone = s.owner_phone
       where s.hidden = false
+        and s.demo = false
+        and coalesce(a.data->>'demo', 'false') <> 'true'
         and (
           coalesce(nullif(a.data->>'planEnds', '')::bigint, 0) = 0
           or (a.data->>'planEnds')::bigint > ${nowMs}
@@ -1231,6 +1234,7 @@ export const listPublicShops = createServerFn({ method: "GET" })
           select id, shop_slug, name, price, image_url, thumb_url, images from souq_listings
           where shop_slug = any(${slugs}::text[])
             and coalesce(body->>'hidden', 'false') <> 'true'
+            and coalesce(body->>'demo', 'false') <> 'true'
         `
       : [];
     return {
@@ -1301,8 +1305,12 @@ export const listHello = createServerFn({ method: "GET" })
       select p.id, p.shop_slug, p.text, p.lang, p.image_url, p.thumb_url, p.created_at, p.expires_at, p.views, p.hearts,
              s.name as shop_name, s.keywords, s.category
       from souq_hello_posts p
-      left join souq_shops s on s.slug = p.shop_slug and s.hidden = false
+      left join souq_shops s on s.slug = p.shop_slug and s.hidden = false and s.demo = false
       where p.status = 'live' and p.expires_at > now()
+        and not exists (
+          select 1 from souq_shops blocked
+          where blocked.slug = p.shop_slug and (blocked.hidden or blocked.demo)
+        )
       order by p.created_at desc
     `;
     const posts = rows.map((row) => ({
