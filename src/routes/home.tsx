@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { directoryShops, useSession } from "@/lib/session";
 import { newPlacesShelf, rankForYou, shopMuted, useTieSeed } from "@/lib/shelves";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
-import { Crown } from "@/components/plan-stamp";
 import { CategoryRail, ShopShelf } from "@/components/shop-shelf";
 import { HelloStrip } from "@/components/hello-board";
 import { NearPanel } from "@/components/near-panel";
 import { DrawDeck } from "@/components/draw-deck";
-import { OptImg } from "@/components/opt-img";
-import { BRAND } from "@/lib/brand-manifest";
+import { HeroFilm } from "@/components/hero-film";
+import heroFilmCss from "../hero-film.css?url";
 
 /* LOCKED section names. Do not rename unless the user says unlock sections.
    For You / إلك
@@ -20,7 +19,30 @@ import { BRAND } from "@/lib/brand-manifest";
    Random / عشوائي
 */
 
-export const Route = createFileRoute("/home")({ component: HomePage });
+export const Route = createFileRoute("/home")({
+  head: () => ({
+    links: [
+      { rel: "stylesheet", href: heroFilmCss },
+      {
+        rel: "preload",
+        as: "image",
+        href: "/brand/hero/storyboard-desktop-poster.jpg",
+        type: "image/jpeg",
+        media: "(min-width:761px)",
+        fetchPriority: "high",
+      },
+      {
+        rel: "preload",
+        as: "image",
+        href: "/brand/hero/storyboard-mobile-poster.jpg",
+        type: "image/jpeg",
+        media: "(max-width:760px)",
+        fetchPriority: "high",
+      },
+    ],
+  }),
+  component: HomePage,
+});
 
 function HomePage() {
   const lang = useSession((s) => s.lang);
@@ -61,77 +83,13 @@ function HomePage() {
     () => [...catalog].filter((shop) => (shop.waOrders ?? 0) + (waTaps[shop.slug] ?? 0) > 0).sort((a, b) => ((b.waOrders ?? 0) + (waTaps[b.slug] ?? 0)) - ((a.waOrders ?? 0) + (waTaps[a.slug] ?? 0))),
     [catalog, waTaps],
   );
-  const [paused, setPaused] = useState(false);
-  const [slide, setSlide] = useState(0);
-  const nextSlide = () => setSlide((current) => (current + 1) % 2);
-  useEffect(() => {
-    if (paused) return;
-    const timer = window.setInterval(nextSlide, 8000);
-    return () => window.clearInterval(timer);
-  }, [paused, slide]);
 
   return (
     <Shell>
       <main className="home">
         <h1 className="sr-only">{ar ? "سوق بطوطة" : "Souq Battuta"}</h1>
-        <section className={`home-hero flock-hero${paused ? " is-paused" : ""}`} aria-label={ar ? "مين إحنا" : "Who we are"}>
-          <picture className="flock-collage-frame">
-            <source media="(max-width: 760px)" type="image/avif" srcSet={BRAND["/brand/hero-collage-phone.jpg"].avif} sizes="100vw" />
-            <source media="(max-width: 760px)" type="image/webp" srcSet={BRAND["/brand/hero-collage-phone.jpg"].webp} sizes="100vw" />
-            <source type="image/avif" srcSet={BRAND["/brand/hero-collage.jpg"].avif} sizes="100vw" />
-            <source type="image/webp" srcSet={BRAND["/brand/hero-collage.jpg"].webp} sizes="100vw" />
-            <img className="flock-collage" src={BRAND["/brand/hero-collage.jpg"].src} alt="" width={BRAND["/brand/hero-collage.jpg"].w} height={BRAND["/brand/hero-collage.jpg"].h} decoding="async" fetchPriority="high" />
-          </picture>
-          <button
-            type="button"
-            className="flock-pause"
-            aria-label={paused ? (ar ? "تشغيل" : "Play") : ar ? "إيقاف" : "Pause"}
-            onClick={() => setPaused((on) => !on)}
-          >
-            {paused ? <PlayIcon /> : <PauseIcon />}
-          </button>
-          <div className="flock-stage">
-            <div className={`flock-pass${slide === 0 ? " is-intro" : ""}`} key={slide}>
-              {slide === 0 ? (
-                <div className="flock-sheet">
-                  <p>Souq Battuta is different.<span>سوق بطوطة مختلف</span></p>
-                  <p>Your rules. Your terms.<span>ضمن قواعدك وشروطك</span></p>
-                  <p>Create your own algorithm. Build your network. Strengthen your community.<span>اصنع خوارزميتك ابنِ شبكتك قوِّي مجتمعك</span></p>
-                  <p>No hidden cuts. No processing fees.<span>بدون عمولات</span></p>
-                  <p>Your profit: 100% yours.<span>ربحك: 100٪ إلك</span></p>
-                </div>
-              ) : (
-                <div className="flock-sheet is-plans">
-                  <p>Pay only for the software.<span>لدفع فقط مقابل البرنامج</span></p>
-                  <div className="flock-plans">
-                    <Link to="/join">
-                      <span className="flock-crown flock-crown-basic"><Crown plan="basic" className="h-8 w-9" /></span>
-                      <b>0.150</b>
-                      <small>Basic · أساسي</small>
-                    </Link>
-                    <Link to="/join">
-                      <span className="flock-crown flock-crown-grow"><Crown plan="grow" className="h-8 w-9" /></span>
-                      <b>0.500</b>
-                      <small>Grow · نمو</small>
-                    </Link>
-                    <Link to="/join">
-                      <span className="flock-crown flock-crown-premium"><Crown plan="premium" className="h-8" /></span>
-                      <b>1 JD</b>
-                      <small>Premium · بريميوم</small>
-                    </Link>
-                  </div>
-                </div>
-              )}
-              <OptImg className="flock-duck" src="/brand/duck-mark.png" alt="" eager sizes="88px" />
-              <Link to="/join" className="flock-stamp">
-                <span>انضم لسرب بطوطة</span>
-                <span>Join the Battuta flock</span>
-              </Link>
-            </div>
-          </div>
-          <div className="flock-map">
-            <button type="button" className="flock-next" aria-label={ar ? "التالي" : "Next"} onClick={nextSlide} />
-          </div>
+        <section className="home-hero home-story-hero" aria-label={ar ? "مين إحنا" : "Who we are"}>
+          <HeroFilm />
         </section>
 
         <p className="mx-auto max-w-2xl px-4 py-6 text-center text-base leading-relaxed text-ink">
@@ -236,21 +194,5 @@ function HomePage() {
         </section>
       </main>
     </Shell>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path fill="currentColor" d="M4 2.5h2.4v11H4zm5.6 0H12v11H9.6z" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path fill="currentColor" d="M4.2 2.4v11.2L13.5 8z" />
-    </svg>
   );
 }

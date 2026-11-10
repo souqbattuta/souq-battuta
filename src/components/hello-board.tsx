@@ -22,7 +22,6 @@ import { SquareCrop } from "@/components/photo-frame";
 import { OptImg } from "@/components/opt-img";
 import { PlanStamp } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
-import { AnimalRule } from "@/components/animal-rule";
 
 export function helloStamp(at: number) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -913,7 +912,6 @@ export function HelloComposer() {
   const [preview, setPreview] = useState(false);
   return (
     <div className="hw-write">
-      <AnimalRule ar={ar} />
       <p>{ar ? `باقي لك ${left} من ${cap} منشورات.` : `You have ${left} of ${cap} posts left.`}</p>
       <p className="hw-note">{ar ? "كل منشور يبقى ٢٤ ساعة. خطتك تحدد كم منشور تقدر تنشر." : "Each post lasts 24 hours. Your plan sets how many you can publish."}</p>
       <div className="hw-lang">

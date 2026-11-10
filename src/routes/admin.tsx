@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Shell } from "@/components/site-header";
-import { AnimalRule } from "@/components/animal-rule";
 import { adminModerate, adminReports } from "@/lib/souq-sync";
 
 export const Route = createFileRoute("/admin")({ component: AdminPage });
@@ -50,7 +49,6 @@ function AdminPage() {
       <main className="mx-auto max-w-3xl px-4 py-10">
         <h1 className="font-display text-4xl">Admin</h1>
         <p className="mt-2 text-sm text-mute">Reported Hello World posts and shops.</p>
-        <div className="mt-4"><AnimalRule ar={false} /></div>
         {error && <p className="mt-4 text-sm text-red">{error}</p>}
         <label className="mt-4 block text-sm font-semibold">
           Moderation note

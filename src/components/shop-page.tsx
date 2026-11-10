@@ -11,8 +11,6 @@ import { AddressDialog } from "@/components/location-picker";
 import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
-import { AnimalRule } from "@/components/animal-rule";
-import { AnimalSaleNotice } from "@/components/animal-sale-notice";
 import { photoControlName } from "@/lib/photo-label";
 import { sectionsWithMatches } from "@/lib/shop-search";
 
@@ -823,8 +821,6 @@ function FreeShop({ shop }: { shop: Shop }) {
           </div>
           <div className="border-t-4 border-gold px-5 py-5">
             <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
-            <AnimalSaleNotice />
-            <div className="mt-3"><AnimalRule ar={ui.lang === "ar"} /></div>
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
             {!ui.own && (
               <>
@@ -978,7 +974,6 @@ function BasicShop({ shop }: { shop: Shop }) {
               <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
               <Crown plan="basic" className="plan-badge profile-badge" />
             </div>
-            <AnimalSaleNotice />
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
             <p className={cn("mt-2 text-sm font-semibold", shop.isOpen ? "text-stamp-green" : "text-mute")}>
               {shop.isOpen ? `● ${t.open}` : `● ${t.closed}`}
@@ -996,7 +991,6 @@ function BasicShop({ shop }: { shop: Shop }) {
             {(shop.bio || shop.bioAr) && (
               <p className="mt-4 text-sm leading-relaxed text-mute">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
             )}
-            <div className="mt-4"><AnimalRule ar={ui.lang === "ar"} /></div>
             <SellerNameNote slug={shop.slug} />
             {shop.socials && shop.socials.length > 0 && (
               <div className="mt-4 flex gap-2">
@@ -1317,7 +1311,6 @@ function GrowShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan={shop.plan} className="plan-badge profile-badge" />
             </h1>
-            <AnimalSaleNotice />
             <div className="mt-4 overflow-hidden rounded-lg border-2 border-ink bg-ink text-center text-cream">
               <div className="flex items-center justify-center gap-2 px-3 py-3">
                 <span
@@ -1361,7 +1354,6 @@ function GrowShop({ shop }: { shop: Shop }) {
             <div className="mt-5 rounded-xl bg-cream px-4 py-4 ring-1 ring-line">
               <p className="text-xs font-semibold tracking-[0.16em] text-ink">{ar ? "عن الدكان" : "ABOUT"}</p>
               <p className="mt-2 text-sm leading-relaxed text-ink">{ar ? shop.bioAr : shop.bio}</p>
-              <div className="mt-3"><AnimalRule ar={ar} /></div>
             </div>
             <SellerNameNote slug={shop.slug} />
             {shop.socials && (
@@ -1697,7 +1689,6 @@ function PremiumShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan="premium" className="plan-badge profile-badge" />
             </h1>
-            <AnimalSaleNotice />
             <p className="text-mute">
               {area} · {t.cityName} · {shop.since}
             </p>
@@ -1717,7 +1708,6 @@ function PremiumShop({ shop }: { shop: Shop }) {
         </div>
         <StallNote shop={shop} lang={ui.lang} />
         <p className="mt-6 max-w-2xl text-base leading-relaxed">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
-        <div className="mt-4 max-w-2xl"><AnimalRule ar={ui.lang === "ar"} /></div>
         <SellerNameNote slug={shop.slug} />
         {shop.keywords && (
           <div className="mt-4 flex flex-wrap gap-2">

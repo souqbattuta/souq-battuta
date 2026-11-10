@@ -11,7 +11,6 @@ import { PhotoStudio, SquareCrop } from "@/components/photo-frame";
 import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
-import { AnimalRule } from "@/components/animal-rule";
 import { builtInKeywords } from "@/lib/shelves";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
@@ -527,7 +526,6 @@ function SellerDesk() {
             )}
             {editPane === "products" && (
               <div className="mt-4 space-y-4" id="desk-editor">
-                <AnimalRule ar={ar} />
                 <form className="grid gap-4 rounded-xl border border-line bg-cream p-4 sm:grid-cols-2" onSubmit={onListing}>
                   <label className="text-sm">
                     Name

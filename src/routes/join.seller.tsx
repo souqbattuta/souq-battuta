@@ -3,7 +3,6 @@ import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { JoinForm } from "@/components/join-form";
-import { AnimalRule } from "@/components/animal-rule";
 
 export const Route = createFileRoute("/join/seller")({
   component: SellerJoinPage,
@@ -28,7 +27,6 @@ function SellerJoinPage() {
           <li>{ar ? "٣) خليهم يلاقوك — المشترون يجدونك من الأقسام والاهتمامات التي يختارونها." : "3) Get discovered — buyers find you through categories and interests they choose."}</li>
         </ol>
         <div className="mt-6 space-y-4">
-          <AnimalRule ar={lang === "ar"} />
           <JoinForm intent="seller" />
         </div>
       </main>

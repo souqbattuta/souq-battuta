@@ -23,9 +23,6 @@ button,[role=button]{cursor:pointer}html{font-family:"Source Serif 4",Noto Naskh
 
 
 /* Narrow location row, category arrows, and photo focus. Do not clip the page. */
-.animal-sale-notice{max-width:40rem;border:1px solid #1c305c;background:#fbf8f1;border-radius:.75rem;margin-top:.75rem;padding:.7rem .9rem;display:grid;gap:.15rem}
-.animal-sale-notice p{color:#1c305c;margin:0;font-size:.92rem;line-height:1.45}
-.animal-sale-notice p[lang=ar]{font-family:var(--font-arabic)}
 .shop-search-empty{border:1px solid #1c305c;background:#fbf8f1;border-radius:.75rem;max-width:28rem;padding:.9rem 1rem;display:grid;gap:.25rem}
 .shop-search-empty p{color:#1c305c;margin:0}
 .shop-search-empty p[lang=ar]{font-family:var(--font-arabic)}

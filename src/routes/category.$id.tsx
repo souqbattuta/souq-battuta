@@ -10,7 +10,6 @@ import { HelloStrip } from "@/components/hello-board";
 import { NearPanel } from "@/components/near-panel";
 import { DrawDeck } from "@/components/draw-deck";
 import { OptImg } from "@/components/opt-img";
-import { AnimalSaleNotice } from "@/components/animal-sale-notice";
 
 export const Route = createFileRoute("/category/$id")({ component: CategoryPage });
 
@@ -75,7 +74,6 @@ function CategoryPage() {
                 <p className="home-eyebrow">{ar ? "قسم" : "Category"}</p>
                 <h1 className="font-display text-4xl">{name}</h1>
                 <p className="home-shelf-note">{other} · {shops.length}</p>
-                {cat.id === "pets" && <AnimalSaleNotice />}
               </div>
             </div>
           </div>

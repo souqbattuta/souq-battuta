@@ -1,0 +1,152 @@
+/* Homepage storyboard hero only. Scoped so it cannot restyle the landing page. */
+.home-hero.home-story-hero {
+  --home-story-paper: #cbab84;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: var(--home-story-cap, auto);
+  max-height: var(--home-story-cap, none);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  grid-template-columns: none;
+  background: var(--home-story-paper);
+}
+
+.home-story-hero .hero-film {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+  background: var(--home-story-paper);
+}
+
+.home-story-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  background: var(--home-story-paper);
+}
+
+.home-story-hero .hero-film__still,
+.home-story-hero .hero-film__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  background: var(--home-story-paper);
+}
+
+.home-story-hero .hero-film__video {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.home-story-hero .hero-film.is-ready .hero-film__video { opacity: 1; }
+.home-story-hero .hero-film__phone { display: none; }
+
+.home-story-controls {
+  position: absolute;
+  z-index: 8;
+  top: 0.45rem;
+  left: 0.45rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.home-story-btn {
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 48, 92, 0.4);
+  background: rgba(246, 236, 214, 0.94);
+  color: #1c305c;
+  box-shadow: 0 4px 12px rgba(40, 30, 10, 0.14);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.home-story-btn svg { width: 1.05rem; height: 1.05rem; display: block; }
+.home-story-btn.is-on {
+  background: #1c305c;
+  color: #f6ecd6;
+  border-color: #1c305c;
+}
+.home-story-btn:focus-visible {
+  outline: 2px solid #1c305c;
+  outline-offset: 3px;
+}
+.home-story-btn.is-on:focus-visible { outline-color: #f6ecd6; }
+
+.home-story-join {
+  flex: 0 0 auto;
+  align-self: center;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  width: max-content;
+  max-width: calc(100% - 1.25rem);
+  min-height: 44px;
+  margin: 0.3rem auto 0.4rem;
+  padding: 0.28rem 1.15rem 0.32rem;
+  border: 1.5px solid rgba(168, 50, 31, 0.72);
+  border-radius: 999px;
+  background: rgba(246, 236, 214, 0.96);
+  color: #24140a;
+  text-align: center;
+  text-decoration: none;
+  line-height: 1.15;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.home-story-join span[lang="ar"] {
+  font-family: "Noto Naskh Arabic", "Source Serif 4", Georgia, serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #a8321f;
+}
+
+.home-story-join span[lang="en"] {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.home-story-join:hover { background: #f8ecd6; }
+.home-story-join:focus-visible {
+  outline: 2px solid #1c305c;
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .home-story-hero .hero-film__desk { display: none !important; }
+  .home-story-hero .hero-film__phone { display: block; }
+  .home-story-controls { top: 0.35rem; left: 0.35rem; }
+  .home-story-join { margin-bottom: 0.35rem; }
+  .home-story-join span[lang="ar"] { font-size: 0.9rem; }
+  .home-story-join span[lang="en"] { font-size: 0.76rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-story-btn,
+  .home-story-join { transition: none; }
+}
