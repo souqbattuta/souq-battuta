@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { shopBySlug, type Shop } from "@/lib/data";
-import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
+import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, sellerWhatsapp, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
 import { Shell } from "@/components/site-header";
 import { ShopView } from "@/components/shop-page";
 
@@ -19,9 +19,10 @@ function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listing
     nameAr: account.displayName || account.username,
     area: account.city || "Amman",
     areaAr: account.city || "عمّان",
-    category: "misc",
+    category: (account.categories?.[0] ?? "misc") as Shop["category"],
+    categories: account.categories,
     plan: account.sellerPlan ?? "free",
-    phone: "+962795636663",
+    phone: sellerWhatsapp(account),
     avatar: account.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || "/brand/avatars/default-duck.jpg",
     cover: account.stallCover,
     bio: account.stallBio,
@@ -51,11 +52,12 @@ export function ShopPage({ slug }: { slug: string }) {
   const accounts = useSession((s) => s.accounts);
   const listings = useSession((s) => s.listings);
   const reviewReplies = useSession((s) => s.reviewReplies);
+  const serverShops = useSession((s) => s.serverShops) as Shop[] | undefined;
   const shop = useMemo(() => {
     const base = shopBySlug(slug);
     const owner = sellerByPublicSlug(slug, accounts);
     if (owner && billingPhase(owner) === "paused" && !base) return null;
-    if (!base) return ownedShop(slug, accounts, listings ?? [], reviewReplies ?? {});
+    if (!base) return ownedShop(slug, accounts, listings ?? [], reviewReplies ?? {}) ?? (serverShops ?? []).find((item) => item.slug === slug) ?? null;
     const premium = owner?.sellerPlan === "premium";
     const extra = (listings ?? [])
       .filter((item) => item.shopSlug === slug)
@@ -73,6 +75,9 @@ export function ShopPage({ slug }: { slug: string }) {
         ? {
             avatar: owner.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : owner.stallAvatar || base.avatar,
             cover: owner.stallCover || base.cover,
+            phone: sellerWhatsapp(owner),
+            bio: owner.stallBio || base.bio,
+            bioAr: owner.stallBioAr || owner.stallBio || base.bioAr,
             isOpen: stallIsOpen(owner),
             hours: stallHoursLabel(owner) || base.hours,
             contactWhenClosed: owner.contactWhenClosed !== false,
@@ -85,7 +90,7 @@ export function ShopPage({ slug }: { slug: string }) {
           }
         : {}),
     };
-  }, [accounts, listings, reviewReplies, slug]);
+  }, [accounts, listings, reviewReplies, serverShops, slug]);
   const ensureDirectory = useSession((s) => s.ensureDirectory);
   const bumpStallViews = useSession((s) => s.bumpStallViews);
   const noteVisit = useSession((s) => s.noteVisit);

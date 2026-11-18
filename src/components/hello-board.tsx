@@ -42,8 +42,9 @@ function postedAgo(at: number, now: number, ar: boolean) {
   return ar ? `قبل ${hours} س` : `${hours} hours ago`;
 }
 
-function hoursLeft(at: number, now: number, _today: boolean, ar: boolean) {
-  const left = Math.max(0, at + 24 * 60 * 60 * 1000 - now);
+function hoursLeft(post: HelloPost, now: number, ar: boolean) {
+  const end = post.expiresAt ?? post.at + 24 * 60 * 60 * 1000;
+  const left = Math.max(0, end - now);
   if (left < 3600e3) {
     const mins = Math.max(1, Math.ceil(left / 60e3));
     return ar ? `${mins} دقيقة وبتختفي` : `${mins} min left`;
@@ -52,23 +53,77 @@ function hoursLeft(at: number, now: number, _today: boolean, ar: boolean) {
   return ar ? `${hours} ساعة وبتختفي` : `${hours} hours left`;
 }
 
-function HistoryRow({ post, ar, now, today = false, onDelete, onEdit }: { post: HelloPost; ar: boolean; now: number; today?: boolean; onDelete?: (id: string) => void; onEdit?: (post: HelloPost) => void }) {
+async function savePhoto(url: string, name: string) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("fetch");
+    const blob = await res.blob();
+    const object = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = object;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(object);
+  } catch {
+    window.open(url, "_blank", "noopener");
+  }
+}
+
+function HistoryRow({
+  post,
+  ar,
+  now,
+  onDelete,
+  onEdit,
+  onDownload,
+  onRepost,
+}: {
+  post: HelloPost;
+  ar: boolean;
+  now: number;
+  onDelete?: (id: string) => void;
+  onEdit?: (post: HelloPost) => void;
+  onDownload?: (post: HelloPost) => void;
+  onRepost?: (post: HelloPost) => void;
+}) {
+  const end = post.expiresAt ?? post.at + 24 * 60 * 60 * 1000;
+  const live = post.status !== "archived" && end > now;
   return (
     <li>
       <OptImg src={post.image} alt="" />
       <span>{post.text}</span>
       <small>
-        {post.views} {ar ? "مشاهدة" : "views"} · {helloStamp(post.at)} · {hoursLeft(post.at, now, today, ar)}
+        {post.views} {ar ? "مشاهدة" : "views"}
+        {post.hearts ? ` · ${post.hearts} ${ar ? "إعجاب" : "likes"}` : ""}
+        {" · "}
+        {helloStamp(post.at)}
+        {live ? ` · ${hoursLeft(post, now, ar)}` : ` · ${ar ? "أرشيف" : "Archive"}`}
       </small>
-      {onDelete && (post.editUntil ?? post.at + HELLO_EDIT) > now && onEdit && (
-        <button type="button" className="hw-delete" onClick={() => onEdit(post)}>
-          {ar ? "تعديل" : "Edit"}
-        </button>
-      )}
-      {onDelete && (
-        <button type="button" className="hw-delete" onClick={() => onDelete(post.id)}>
-          {ar ? "حذف" : "Delete"}
-        </button>
+      {(onEdit || onDelete || onDownload || onRepost) && (
+        <div className="hw-row-actions">
+          {onDownload && post.full && (
+            <button type="button" className="hw-delete" onClick={() => onDownload(post)}>
+              {ar ? "تنزيل" : "Download"}
+            </button>
+          )}
+          {onRepost && (
+            <button type="button" className="hw-delete" onClick={() => onRepost(post)}>
+              {ar ? "إعادة النشر" : "Repost"}
+            </button>
+          )}
+          {onEdit && (post.editUntil ?? post.at + HELLO_EDIT) > now && (
+            <button type="button" className="hw-delete" onClick={() => onEdit(post)}>
+              {ar ? "تعديل" : "Edit"}
+            </button>
+          )}
+          {onDelete && (
+            <button type="button" className="hw-delete" onClick={() => onDelete(post.id)}>
+              {ar ? "حذف" : "Delete"}
+            </button>
+          )}
+        </div>
       )}
     </li>
   );
@@ -879,13 +934,15 @@ export function HelloComposer() {
   const deleteHello = useSession((s) => s.deleteHello);
   const editHelloPost = useSession((s) => s.editHelloPost);
   const loadHelloQuota = useSession((s) => s.loadHelloQuota);
+  const repostHello = useSession((s) => s.repostHello);
+  const listings = useSession((s) => s.listings) ?? [];
   const ui = useSession((s) => s.lang);
   const ar = ui === "ar";
   const plan = user?.sellerPlan ?? "free";
   const cap = HELLO_CAP[plan] ?? 1;
   const [now, setNow] = useState(() => Date.now());
-  const [more, setMore] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [listingId, setListingId] = useState<string | null>(null);
   useEffect(() => {
     pruneHello();
     void loadHelloQuota();
@@ -896,8 +953,12 @@ export function HelloComposer() {
     return () => window.clearInterval(timer);
   }, [pruneHello, loadHelloQuota]);
   const all = [...(user ? accounts[user.phone]?.helloPosts ?? [] : [])].sort((a, b) => b.at - a.at);
-  const mine = all.filter((post) => (post.expiresAt ?? post.at + 24 * 60 * 60 * 1000) > now && post.status !== "removed" && post.status !== "hidden");
-  const older = all.filter((post) => (post.expiresAt ?? post.at + 24 * 60 * 60 * 1000) <= now && post.at >= now - 30 * 864e5);
+  const stillUp = (post: HelloPost) => (post.expiresAt ?? post.at + 24 * 60 * 60 * 1000) > now && post.status !== "removed" && post.status !== "hidden" && post.status !== "archived";
+  const mine = all.filter(stillUp);
+  const archived = all.filter((post) => !stillUp(post) && post.status !== "removed" && post.status !== "hidden");
+  const shopListings = (listings as { id: string; shopSlug?: string; name?: string; images?: string[]; image?: string }[]).filter(
+    (item) => item.shopSlug === user?.shopSlug && Boolean(item.images?.[0] || item.image),
+  );
   const [text, setText] = useState("");
   const [lang, setLang] = useState<"en" | "ar">("en");
   const [image, setImage] = useState<string | null>(null);
@@ -942,7 +1003,38 @@ export function HelloComposer() {
           ))}
         </div>
       )}
-      <SquareCrop label="Photo" src={image} onPick={setImage} story />
+      <SquareCrop
+        label="Photo"
+        src={image}
+        onPick={(url) => {
+          setListingId(null);
+          setImage(url);
+        }}
+        story
+      />
+      {!editing && shopListings.length > 0 && (
+        <div>
+          <p className="hw-note">{ar ? "أو استخدم صورة من سلعة، بلا رفع جديد." : "Or use a photo from a listing. No new upload."}</p>
+          <div className="hw-pick">
+            {shopListings.map((item) => {
+              const src = item.images?.[0] || item.image || "";
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={listingId === item.id ? "is-on" : ""}
+                  onClick={() => {
+                    setListingId(item.id);
+                    setImage(src);
+                  }}
+                >
+                  <OptImg src={src} alt={item.name || ""} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {error && <p className="hw-note">{error}</p>}
       <button
         type="button"
@@ -960,14 +1052,37 @@ export function HelloComposer() {
       {mine.length === 0 && <p className="hw-note">{ar ? "ما في منشور اليوم." : "Nothing posted today."}</p>}
       <ul className="hw-mine">
         {mine.map((post) => (
-          <HistoryRow key={post.id} post={post} ar={ar} now={now} today onDelete={deleteHello} onEdit={(item) => { setEditing(item.id); setText(item.text); setImage(item.image); }} />
+          <HistoryRow
+            key={post.id}
+            post={post}
+            ar={ar}
+            now={now}
+            onDelete={deleteHello}
+            onDownload={(item) => void savePhoto(item.full || item.image, `hello-${item.id}.webp`)}
+            onEdit={(item) => { setEditing(item.id); setListingId(null); setText(item.text); setImage(item.image); }}
+          />
         ))}
       </ul>
-      {older.length > 0 && (
-        <button type="button" className="hw-more-posts" onClick={() => setMore(true)}>
-          {ar ? "المزيد" : "More"}
-        </button>
-      )}
+      <h2 className="hw-history-title">{ar ? "الأرشيف" : "Archive"}</h2>
+      <p className="hw-note">{ar ? "الأرشيف على لوحة البائع فقط. الصورة الكبيرة تُحذف بعد ٢٤ ساعة." : "The archive stays on this desk. The full photo is deleted after 24 hours."}</p>
+      {archived.length === 0 && <p className="hw-note">{ar ? "ما في أرشيف." : "No archive yet."}</p>}
+      <ul className="hw-mine">
+        {archived.map((post) => (
+          <HistoryRow
+            key={post.id}
+            post={post}
+            ar={ar}
+            now={now}
+            onDelete={deleteHello}
+            onRepost={plan === "premium" ? (item) => {
+              void (async () => {
+                const res = await repostHello(item.id);
+                if (!res?.ok) setError(helloFailCopy(String(res?.error ?? "server"), ar));
+              })();
+            } : undefined}
+          />
+        ))}
+      </ul>
       {preview && image && (
         <div className="hw-view" onClick={() => setPreview(false)}>
           <div className="hw-confirm" onClick={(event) => event.stopPropagation()}>
@@ -1000,7 +1115,7 @@ export function HelloComposer() {
                   void (async () => {
                     const res = editing
                       ? await editHelloPost({ id: editing, text, image })
-                      : await addHelloPost({ text, lang, image });
+                      : await addHelloPost({ text, lang, image, listingId });
                     if (!res.ok) {
                       setError(helloFailCopy(String(res.error ?? "server"), ar));
                       setPreview(false);
@@ -1008,6 +1123,7 @@ export function HelloComposer() {
                     }
                     setText("");
                     setImage(null);
+                    setListingId(null);
                     setEditing(null);
                     setError("");
                     setPreview(false);
@@ -1020,19 +1136,6 @@ export function HelloComposer() {
                 {ar ? "إلغاء" : "Cancel"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-      {more && (
-        <div className="hw-view" onClick={() => setMore(false)}>
-          <div className="hw-month" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="hw-x" onClick={() => setMore(false)} aria-label={ar ? "إغلاق" : "Close"}>×</button>
-            <h3>{ar ? "آخر شهر" : "This month"}</h3>
-            <ul className="hw-mine">
-              {older.map((post) => (
-                <HistoryRow key={post.id} post={post} ar={ar} now={now} />
-              ))}
-            </ul>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { HELLO_CAP, HELLO_EDIT, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
+import { effectivePlan, helloKeep } from "./hello-archive";
 import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, buyerVisibleShops, hasWord, shopMuted, shopText } from "./shelves";
 export type BookmarkList = any;
 export type BuyerAccount = any;
@@ -12,7 +13,7 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
@@ -162,6 +163,10 @@ function isValidArabPhone(raw: any) {
 function isValidJoPhone(raw: any) {
   return /^\+9627\d{8}$/.test(normalizePhone(raw));
 }
+function sellerWhatsapp(account: any) {
+  const raw = String(account?.whatsappPhone ?? "").trim();
+  return isValidJoPhone(raw) ? normalizePhone(raw) : "";
+}
 function slugForSeller(user: any) {
   const owned = SHOPS.find((shop) => shop.phone === user.phone);
   if (owned) return owned.slug;
@@ -235,6 +240,13 @@ function shopFromPublic(row: {
   category: string;
   keywords: string[];
   bio: string;
+  bioAr?: string;
+  phone?: string;
+  stallOpens?: string;
+  stallCloses?: string;
+  stallDays?: string;
+  stallHours?: string;
+  stallForce?: string;
   avatar: string;
   cover: string;
   createdAt: number;
@@ -249,11 +261,13 @@ function shopFromPublic(row: {
     areaAr: row.area || "عمّان",
     category,
     plan: asPlan(row.plan),
-    phone: "",
+    phone: sellerWhatsapp({ whatsappPhone: row.phone }),
     avatar: row.avatar,
     cover: row.cover,
     bio: row.bio,
-    bioAr: row.bio,
+    bioAr: row.bioAr || row.bio,
+    hours: stallHoursLabel(row),
+    isOpen: stallIsOpen(row),
     keywords: [...new Set([...builtInKeywords([category]), ...row.keywords])],
     products: row.products.map((item) => ({
       id: item.id,
@@ -295,7 +309,7 @@ function directoryShops(accounts: any): Shop[] {
       category,
       categories: (account.categories?.length ? account.categories : [category]).slice(0, 2),
       plan: account.sellerPlan ?? "free",
-      phone: "+962795636663",
+      phone: sellerWhatsapp(account),
       avatar: (account.sellerPlan ?? "free") === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || products[0]?.images[0] || "/brand/avatars/seller-duck.jpg?v=2",
       cover: account.stallCover || products[0]?.images[0],
       bio: account.stallBio,
@@ -379,7 +393,7 @@ function stallIsOpen(stall: any, now = /* @__PURE__ */ new Date()) {
   if (stall.stallForce === "closed") return false;
   const opens = minutes(stall.stallOpens);
   const closes = minutes(stall.stallCloses);
-  if (opens == null || closes == null) return stall.stallOpen !== false;
+  if (opens == null || closes == null) return null;
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Amman", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((part) => [part.type, part.value])
   );
@@ -1045,6 +1059,8 @@ const useSession = create<any>()(
       addReview: (review: any) => {
         const user = get().user;
         if (!user || user.role === "seller") return;
+        const shop = directoryShops(get().accounts).find((item) => item.slug === review.shopSlug);
+        if (!shop || !PLANS[shop.plan as keyof typeof PLANS]?.reviews) return;
         const saved = {
           id: `r-${Date.now()}`,
           shopSlug: review.shopSlug,
@@ -1713,8 +1729,9 @@ const useSession = create<any>()(
         if (text.length < 2 || !input.image || hasProfanity(text)) return { ok: false, error: "name" };
         if (billedLength(text, handles) > 88) return { ok: false, error: "limit" };
         try {
-          const image = await shrinkDataUrl(String(input.image));
-          const res = await publishHello({ data: { text, lang: input.lang === "ar" ? "ar" : "en", image } });
+          const listingId = typeof input.listingId === "string" && input.listingId ? input.listingId : undefined;
+          const image = listingId ? String(input.image) : await shrinkDataUrl(String(input.image));
+          const res = await publishHello({ data: { text, lang: input.lang === "ar" ? "ar" : "en", image, ...(listingId ? { listingId } : {}) } });
           if (!res.ok) return res;
           const post = {
             id: res.id,
@@ -1751,9 +1768,14 @@ const useSession = create<any>()(
         const user = get().user;
         const account = user ? get().accounts[user.phone] : void 0;
         if (!user || !account) return;
-        const keep = Date.now() - 30 * 864e5;
+        const now = Date.now();
+        const plan = effectivePlan(user.sellerPlan, account.planEnds, now);
         const posts = account.helloPosts ?? [];
-        const next = posts.filter((post: any) => post.at >= keep);
+        const next = posts.filter((post: any) => {
+          if (post.status === "removed") return false;
+          const expires = post.expiresAt ?? post.at + HELLO_WINDOW;
+          return helloKeep(plan, expires, now) !== "drop";
+        });
         if (next.length === posts.length) return;
         set({ accounts: { ...get().accounts, [user.phone]: { ...account, helloPosts: next } } });
       },
@@ -1780,6 +1802,44 @@ const useSession = create<any>()(
           if (!latest) return;
           set({ accounts: { ...get().accounts, [user.phone]: { ...latest, helloSpent: { at: Date.now(), count: res.spent } } } });
         });
+      },
+      repostHello: async (id: any) => {
+        const user = get().user;
+        const account = user ? get().accounts[user.phone] : void 0;
+        if (!user || user.role !== "seller" || !account) return { ok: false, error: "auth" };
+        try {
+          const res = await repostHelloServer({ data: { id: String(id) } });
+          if (!res.ok) return res;
+          const post = {
+            id: res.id,
+            shopSlug: user.shopSlug || slugForSeller(user),
+            text: res.text,
+            lang: res.lang,
+            image: res.thumbUrl || res.imageUrl,
+            full: res.imageUrl,
+            at: res.at,
+            expiresAt: res.at + HELLO_WINDOW,
+            editUntil: res.at + HELLO_EDIT,
+            views: 0,
+            hearts: 0,
+            status: "live",
+          };
+          const latest = get().accounts[user.phone] ?? account;
+          set({
+            accounts: {
+              ...get().accounts,
+              [user.phone]: {
+                ...latest,
+                helloPosts: [post, ...(latest.helloPosts ?? [])],
+                helloSpent: { at: Date.now(), count: res.spent },
+              },
+            },
+          });
+          return { ok: true, spent: res.spent, cap: res.cap };
+        } catch (error) {
+          console.error("[hello] repost request failed", error);
+          return { ok: false, error: "timeout" };
+        }
       },
       toggleHelloHeart: (id: any) => {
         const user = get().user;
@@ -2068,6 +2128,7 @@ export {
   publicProduct,
   publicSocials,
   sellerByPublicSlug,
+  sellerWhatsapp,
   shareSlug,
   slugForSeller,
   socialVerifyCode,

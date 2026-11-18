@@ -4,6 +4,8 @@ import { PLANS, type Shop } from "@/lib/data";
 import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
+import { queueOwnedMedia, sweepHelloStorage } from "@/lib/hello-cleanup";
+import { effectivePlan } from "@/lib/hello-archive";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -61,6 +63,9 @@ const pushSchema = z
     droppedKeywords: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
     stallAvatar: z.string().trim().max(500).optional(),
     stallCover: z.string().trim().max(500).optional(),
+    stallHours: z.string().trim().max(80).optional(),
+    stallForce: z.enum(["auto", "open", "closed"]).optional(),
+    whatsappPhone: z.string().trim().max(20).optional(),
   });
 
 type Profile = z.infer<typeof profileSchema>;
@@ -228,6 +233,15 @@ function publicProfile(phone: string, data: Record<string, unknown>, row: { role
     billingPeriod: data.billingPeriod === "yearly" ? "yearly" : data.billingPeriod === "monthly" ? "monthly" : undefined,
     paymentRef: typeof data.paymentRef === "string" ? data.paymentRef : undefined,
     categories: Array.isArray(data.categories) ? data.categories : undefined,
+    whatsappPhone: typeof data.whatsappPhone === "string" ? data.whatsappPhone : undefined,
+    stallOpens: typeof data.stallOpens === "string" ? data.stallOpens : undefined,
+    stallCloses: typeof data.stallCloses === "string" ? data.stallCloses : undefined,
+    stallDays: typeof data.stallDays === "string" ? data.stallDays : undefined,
+    stallHours: typeof data.stallHours === "string" ? data.stallHours : undefined,
+    stallForce: data.stallForce === "open" || data.stallForce === "closed" || data.stallForce === "auto" ? data.stallForce : undefined,
+    stallBio: typeof data.stallBio === "string" ? data.stallBio : undefined,
+    stallBioAr: typeof data.stallBioAr === "string" ? data.stallBioAr : undefined,
+    contactWhenClosed: typeof data.contactWhenClosed === "boolean" ? data.contactWhenClosed : undefined,
     areaLat: typeof data.areaLat === "number" ? data.areaLat : undefined,
     areaLng: typeof data.areaLng === "number" ? data.areaLng : undefined,
     joinedAt: typeof data.joinedAt === "number" ? data.joinedAt : undefined,
@@ -367,14 +381,15 @@ export const sendSouqOtp = createServerFn({ method: "POST" })
     if (!sent.ok && sent.error !== "unconfigured") return { ok: false as const, error: sent.error, retryAfter: 0 };
     if (sent.ok) {
       await sql`
-        insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at)
-        values (${phone}, ${hashOtp(s, code, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now())
+        insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at, purpose)
+        values (${phone}, ${hashOtp(s, code, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now(), 'signup')
         on conflict (phone) do update set
           code_hash = excluded.code_hash,
           salt = excluded.salt,
           expires_at = excluded.expires_at,
           attempts = 0,
-          sent_at = now()
+          sent_at = now(),
+          purpose = 'signup'
       `;
     }
     return { ok: true as const, retryAfter: 60 };
@@ -395,12 +410,12 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     if (!(await hitRate(sql, `ip:verify:${ip}`, 20, 3600))) return { ok: false as const, error: "rate" as const };
     const allowTest = allowTestOtp();
     const testCode = data.code === "424242" && allowTest;
-    const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string }>`
-      select code_hash, salt, attempts, expires_at from souq_otp where phone = ${data.phone}
+    const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string; purpose: string }>`
+      select code_hash, salt, attempts, expires_at, purpose from souq_otp where phone = ${data.phone}
     `;
     const otp = rows[0];
     if (!testCode) {
-      if (!otp) return { ok: false as const, error: "otp" as const };
+      if (!otp || otp.purpose === "reset") return { ok: false as const, error: "otp" as const };
       if (new Date(otp.expires_at).getTime() <= Date.now()) {
         await sql`delete from souq_otp where phone = ${data.phone}`;
         return { ok: false as const, error: "expired" as const };
@@ -612,6 +627,104 @@ export const signOutSouq = createServerFn({ method: "POST" }).handler(async () =
   return { ok: true as const };
 });
 
+export const requestPasswordReset = createServerFn({ method: "POST" })
+  .validator(z.object({ phone: z.string().trim().min(8).max(20) }))
+  .handler(async ({ data: raw }) => {
+    const phone = canonPhone(raw.phone);
+    if (!/^\+\d{8,15}$/.test(phone)) return { ok: false as const, error: "phone" as const };
+    const s = await kit();
+    const sql = await db();
+    const ip = clientIp(s);
+    if (!(await hitRate(sql, `ip:otp:${ip}`, 8, 3600))) return { ok: false as const, error: "rate" as const };
+    if (!(await hitRate(sql, `phone:otp:${phone}`, 5, 3600))) return { ok: false as const, error: "rate" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account?.phone_verified) return { ok: true as const, retryAfter: 60 };
+    const recent = await sql<{ sent_at: string; purpose: string }>`
+      select sent_at, purpose from souq_otp where phone = ${phone}
+    `;
+    const age = recent[0] ? Date.now() - new Date(recent[0].sent_at).getTime() : 60_000;
+    if (recent[0]?.purpose === "reset" && age < 60_000) return { ok: true as const, retryAfter: 60 };
+    const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
+    let store = code;
+    try {
+      const { sendWhatsAppCode } = await import("@/lib/whatsapp-otp");
+      const sent = await sendWhatsAppCode(phone, code);
+      if (!sent.ok) {
+        if (!(sent.error === "unconfigured" && allowTestOtp())) return { ok: true as const, retryAfter: 60 };
+        store = "424242";
+      }
+    } catch (error) {
+      console.error("[souq] reset code failed", error);
+      return { ok: true as const, retryAfter: 60 };
+    }
+    const salt = s.randomBytes(16).toString("hex");
+    await sql`
+      insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at, purpose)
+      values (${phone}, ${hashOtp(s, store, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now(), 'reset')
+      on conflict (phone) do update set
+        code_hash = excluded.code_hash,
+        salt = excluded.salt,
+        expires_at = excluded.expires_at,
+        attempts = 0,
+        sent_at = now(),
+        purpose = 'reset'
+    `;
+    return { ok: true as const, retryAfter: 60 };
+  });
+
+export const confirmPasswordReset = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      phone: z.string().trim().min(8).max(20),
+      code: z.string().trim().regex(/^\d{6}$/),
+      password: z.string().min(8).max(80),
+    }),
+  )
+  .handler(async ({ data: raw }) => {
+    const phone = canonPhone(raw.phone);
+    if (!passwordSchema.safeParse(raw.password).success) return { ok: false as const, error: "password" as const };
+    const s = await kit();
+    const sql = await db();
+    const ip = clientIp(s);
+    if (!(await hitRate(sql, `ip:reset:${ip}`, 30, 3600))) return { ok: false as const, error: "rate" as const };
+    const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string; purpose: string }>`
+      select code_hash, salt, attempts, expires_at, purpose from souq_otp where phone = ${phone}
+    `;
+    const otp = rows[0];
+    if (!otp || otp.purpose !== "reset") {
+      if (!(await hitRate(sql, `phone:reset-guess:${phone}`, 5, 3600))) return { ok: false as const, error: "attempts" as const };
+      return { ok: false as const, error: "otp" as const };
+    }
+    if (new Date(otp.expires_at).getTime() <= Date.now()) {
+      await sql`delete from souq_otp where phone = ${phone}`;
+      return { ok: false as const, error: "expired" as const };
+    }
+    if (otp.attempts >= MAX_OTP_ATTEMPTS) {
+      await sql`delete from souq_otp where phone = ${phone}`;
+      return { ok: false as const, error: "attempts" as const };
+    }
+    if (!otpMatches(s, raw.code, otp.salt, otp.code_hash)) {
+      await sql`update souq_otp set attempts = attempts + 1 where phone = ${phone}`;
+      return { ok: false as const, error: "otp" as const };
+    }
+    const account = await loadAccount(sql, phone);
+    if (!account?.phone_verified) return { ok: false as const, error: "otp" as const };
+    const passwordHash = await s.hash(raw.password, BCRYPT_COST);
+    await sql`
+      update souq_accounts set
+        password_hash = ${passwordHash},
+        must_reset = false,
+        failed_logins = 0,
+        locked_until = null,
+        updated_at = now()
+      where phone = ${phone}
+    `;
+    await sql`delete from souq_tokens where phone = ${phone}`;
+    await sql`delete from souq_otp where phone = ${phone}`;
+    clearSessionCookie(s);
+    return { ok: true as const };
+  });
+
 type AlgoField = { value: string[]; updatedAt: number };
 type AlgoBox = {
   interestWords?: AlgoField;
@@ -724,6 +837,7 @@ export const pushSouq = createServerFn({ method: "POST" })
       incoming.findWords = incoming.findWords.slice(0, PLANS[planIdOf(account.plan)].keywords);
     }
     Object.assign(next, incoming);
+    if (typeof next.whatsappPhone === "string" && !/^\+9627\d{8}$/.test(next.whatsappPhone)) delete next.whatsappPhone;
     for (const key of ["stallAvatar", "stallCover"] as const) {
       const value = next[key];
       if (typeof value === "string" && value.startsWith("data:")) delete next[key];
@@ -853,6 +967,8 @@ export const saveSouqReview = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
+    const shops = await sql<{ plan: string | null }>`select plan from souq_shops where slug = ${data.shopSlug} limit 1`;
+    if (shops[0]?.plan !== "grow" && shops[0]?.plan !== "premium") return { ok: false as const, error: "plan" as const };
     const s = await kit();
     const id = `r-${s.randomBytes(8).toString("hex")}`;
     await sql`
@@ -916,6 +1032,7 @@ export const confirmSouqPayment = createServerFn({ method: "POST" })
     if (account.shop_slug) {
       await sql`update souq_shops set plan = ${plan}, updated_at = now() where slug = ${account.shop_slug}`;
     }
+    await sweepHelloStorage(data.phone);
     return { ok: true as const, plan, planEnds };
   });
 
@@ -984,7 +1101,21 @@ export const deleteSouqListing = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
+    const rows = await sql<{ image_url: string | null; thumb_url: string | null; images: unknown; body: unknown }>`
+      select image_url, thumb_url, images, body from souq_listings where id = ${data.id} and owner_phone = ${phone}
+    `;
+    const row = rows[0];
     await sql`delete from souq_listings where id = ${data.id} and owner_phone = ${phone}`;
+    if (row) {
+      const body = row.body && typeof row.body === "object" ? row.body as { images?: unknown } : {};
+      const urls: string[] = [];
+      if (row.image_url) urls.push(row.image_url);
+      if (row.thumb_url) urls.push(row.thumb_url);
+      if (Array.isArray(row.images)) urls.push(...row.images.filter((url): url is string => typeof url === "string"));
+      if (Array.isArray(body.images)) urls.push(...body.images.filter((url): url is string => typeof url === "string"));
+      await queueOwnedMedia(phone, urls);
+      await sweepHelloStorage(phone);
+    }
     return { ok: true as const };
   });
 
@@ -1052,7 +1183,12 @@ async function storeImage(dataUrl: string, kind: "listing" | "hello") {
 }
 
 export const publishHello = createServerFn({ method: "POST" })
-  .validator(z.object({ text: z.string().trim().min(2).max(88), lang: z.enum(["en", "ar"]).optional(), image: z.string().min(8) }))
+  .validator(z.object({
+    text: z.string().trim().min(2).max(88),
+    lang: z.enum(["en", "ar"]).optional(),
+    image: z.string().min(8),
+    listingId: z.string().trim().min(2).max(80).optional(),
+  }))
   .handler(async ({ data }) => {
     try {
       if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
@@ -1066,7 +1202,17 @@ export const publishHello = createServerFn({ method: "POST" })
       const cap = HELLO_CAP[plan] ?? 1;
       let imageUrl = data.image;
       let thumbUrl = data.image;
-      if (data.image.startsWith("data:")) {
+      if (data.listingId) {
+        const listings = await sql<{ image_url: string | null; thumb_url: string | null; images: unknown }>`
+          select image_url, thumb_url, images from souq_listings
+          where id = ${data.listingId} and owner_phone = ${phone}
+        `;
+        const listing = listings[0];
+        const gallery = Array.isArray(listing?.images) ? listing.images.filter((url): url is string => typeof url === "string" && url.length > 0) : [];
+        imageUrl = listing?.image_url || gallery[0] || "";
+        thumbUrl = listing?.thumb_url || imageUrl;
+        if (!imageUrl) return { ok: false as const, error: "type" as const };
+      } else if (data.image.startsWith("data:")) {
         const stored = await storeImage(data.image, "hello");
         if (!stored.ok) return stored;
         imageUrl = stored.url;
@@ -1131,7 +1277,18 @@ export const deleteHelloPost = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
-    await sql`update souq_hello_posts set status = 'removed' where id = ${data.id} and owner_phone = ${phone}`;
+    const rows = await sql<{ image_url: string | null; thumb_url: string | null }>`
+      select image_url, thumb_url from souq_hello_posts where id = ${data.id} and owner_phone = ${phone}
+    `;
+    const post = rows[0];
+    if (!post) return { ok: false as const, error: "missing" as const };
+    await sql`
+      update souq_hello_posts
+      set status = 'removed', image_url = null, thumb_url = null
+      where id = ${data.id} and owner_phone = ${phone}
+    `;
+    await queueOwnedMedia(phone, [post.image_url || "", post.thumb_url || ""]);
+    await sweepHelloStorage(phone);
     const spentRows = await sql<{ n: number }>`
       select count(*)::int as n from souq_hello_posts
       where owner_phone = ${phone} and created_at > now() - interval '24 hours'
@@ -1141,12 +1298,71 @@ export const deleteHelloPost = createServerFn({ method: "POST" })
     return { ok: true as const, spent: Number(spentRows[0]?.n ?? 0), cap };
   });
 
+export const repostHello = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(3).max(80) }))
+  .handler(async ({ data }) => {
+    try {
+      if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
+      const sql = await db();
+      const phone = await sessionPhone(sql);
+      if (!phone) return { ok: false as const, error: "auth" as const };
+      const account = await loadAccount(sql, phone);
+      if (!account || account.role !== "seller" || !account.shop_slug) return { ok: false as const, error: "auth" as const };
+      if (membershipPaused(account)) return { ok: false as const, error: "paused" as const };
+      const ends = typeof account.data?.planEnds === "number" ? account.data.planEnds : 0;
+      if (effectivePlan(account.plan, ends, Date.now()) !== "premium") return { ok: false as const, error: "plan" as const };
+      const cap = HELLO_CAP.premium;
+      const rows = await sql<{ text: string; lang: string; thumb_url: string | null; status: string }>`
+        select text, lang, thumb_url, status from souq_hello_posts
+        where id = ${data.id} and owner_phone = ${phone}
+      `;
+      const source = rows[0];
+      if (!source || source.status !== "archived" || !source.thumb_url) return { ok: false as const, error: "missing" as const };
+      const s = await kit();
+      const id = `hw-${s.randomBytes(6).toString("hex")}`;
+      const lang = source.lang === "ar" ? "ar" : "en";
+      const placed = await tx(async (trx) => {
+        await trx`select pg_advisory_xact_lock(hashtext(${phone}))`;
+        const spentRows = await trx<{ n: number }>`
+          select count(*)::int as n from souq_hello_posts
+          where owner_phone = ${phone} and created_at > now() - interval '24 hours'
+        `;
+        const spent = Number(spentRows[0]?.n ?? 0);
+        if (spent >= cap) return { ok: false as const, error: "limit" as const, spent, cap };
+        await trx`
+          insert into souq_hello_posts (id, shop_slug, owner_phone, text, lang, image_url, thumb_url, expires_at, edit_until)
+          values (${id}, ${account.shop_slug}, ${phone}, ${source.text}, ${lang}, ${source.thumb_url}, ${source.thumb_url}, now() + interval '24 hours', now() + interval '15 minutes')
+        `;
+        return {
+          ok: true as const,
+          id,
+          spent: spent + 1,
+          cap,
+          imageUrl: source.thumb_url as string,
+          thumbUrl: source.thumb_url as string,
+          at: Date.now(),
+          text: source.text,
+          lang: lang as "en" | "ar",
+        };
+      });
+      return placed;
+    } catch (error) {
+      console.error("[hello] repost failed", error);
+      return { ok: false as const, error: "server" as const };
+    }
+  });
+
 export const helloQuota = createServerFn({ method: "GET" }).handler(async () => {
   const sql = await db();
   const phone = await sessionPhone(sql);
   if (!phone) return { ok: false as const, error: "auth" as const };
   const account = await loadAccount(sql, phone);
   if (!account || account.role !== "seller") return { ok: false as const, error: "auth" as const };
+  try {
+    await sweepHelloStorage(phone);
+  } catch (error) {
+    console.error("[hello] sweep failed", error);
+  }
   const plan = account.plan || "free";
   const cap = HELLO_CAP[plan] ?? 1;
   const spentRows = await sql<{ n: number }>`
@@ -1169,28 +1385,33 @@ export const helloQuota = createServerFn({ method: "GET" }).handler(async () => 
   }>`
     select id, shop_slug, text, lang, image_url, thumb_url, created_at, expires_at, edit_until, views, hearts, status
     from souq_hello_posts
-    where owner_phone = ${phone} and status <> 'removed' and created_at > now() - interval '30 days'
+    where owner_phone = ${phone} and status <> 'removed'
     order by created_at desc
-    limit 40
+    limit 80
   `;
+  const now = Date.now();
   return {
     ok: true as const,
     spent: Number(spentRows[0]?.n ?? 0),
     cap,
-    posts: rows.map((row) => ({
-      id: row.id,
-      shopSlug: row.shop_slug,
-      text: row.text,
-      lang: row.lang === "ar" ? "ar" as const : "en" as const,
-      image: row.thumb_url || row.image_url || "",
-      full: row.image_url || row.thumb_url || "",
-      at: new Date(row.created_at).getTime(),
-      expiresAt: new Date(row.expires_at).getTime(),
-      editUntil: new Date(row.edit_until).getTime(),
-      views: Number(row.views ?? 0),
-      hearts: Number(row.hearts ?? 0),
-      status: row.status === "hidden" ? "hidden" as const : "live" as const,
-    })),
+    posts: rows.map((row) => {
+      const expiresAt = new Date(row.expires_at).getTime();
+      const live = row.status === "live" && expiresAt > now;
+      return {
+        id: row.id,
+        shopSlug: row.shop_slug,
+        text: row.text,
+        lang: row.lang === "ar" ? "ar" as const : "en" as const,
+        image: row.thumb_url || row.image_url || "",
+        full: live ? row.image_url || "" : "",
+        at: new Date(row.created_at).getTime(),
+        expiresAt,
+        editUntil: new Date(row.edit_until).getTime(),
+        views: Number(row.views ?? 0),
+        hearts: Number(row.hearts ?? 0),
+        status: row.status === "hidden" ? "hidden" as const : live ? "live" as const : "archived" as const,
+      };
+    }),
   };
 });
 
@@ -1213,8 +1434,22 @@ export const listPublicShops = createServerFn({ method: "GET" })
       cover_url: string | null;
       thumb_url: string | null;
       created_at: string;
+      whatsapp_phone: string | null;
+      stall_opens: string | null;
+      stall_closes: string | null;
+      stall_days: string | null;
+      stall_hours: string | null;
+      stall_force: string | null;
+      bio_ar: string | null;
     }>`
-      select s.slug, s.name, s.area, s.plan, s.category, s.keywords, s.bio, s.avatar_url, s.cover_url, s.thumb_url, s.created_at
+      select s.slug, s.name, s.area, s.plan, s.category, s.keywords, s.bio, s.avatar_url, s.cover_url, s.thumb_url, s.created_at,
+        a.data->>'whatsappPhone' as whatsapp_phone,
+        a.data->>'stallOpens' as stall_opens,
+        a.data->>'stallCloses' as stall_closes,
+        a.data->>'stallDays' as stall_days,
+        a.data->>'stallHours' as stall_hours,
+        a.data->>'stallForce' as stall_force,
+        a.data->>'stallBioAr' as bio_ar
       from souq_shops s
       join souq_accounts a on a.phone = s.owner_phone
       where s.hidden = false
@@ -1256,6 +1491,13 @@ export const listPublicShops = createServerFn({ method: "GET" })
           category: row.category || "misc",
           keywords: words,
           bio: row.bio,
+          bioAr: row.bio_ar || row.bio,
+          phone: row.whatsapp_phone || "",
+          stallOpens: row.stall_opens || "",
+          stallCloses: row.stall_closes || "",
+          stallDays: row.stall_days || "",
+          stallHours: row.stall_hours || "",
+          stallForce: row.stall_force || "",
           avatar: photo,
           cover: row.cover_url || photo,
           createdAt: new Date(row.created_at).getTime(),

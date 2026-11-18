@@ -229,13 +229,19 @@ export function ShopTiles({
                       {count > 0 && <em>{rating}</em>}
                     </span>
                   )}
+                  {((shop.likes ?? 0) > 0 || distances?.[shop.slug] != null) && (
                   <span className="stall-card-likes">
-                    <HeartIcon />
-                    {shop.likes ?? 0}
+                    {(shop.likes ?? 0) > 0 && (
+                      <>
+                        <HeartIcon />
+                        {shop.likes}
+                      </>
+                    )}
                     {distances?.[shop.slug] != null && (
                       <span className="stall-card-km">{distances[shop.slug] < 1 ? distances[shop.slug].toFixed(1) : Math.round(distances[shop.slug])} {ar ? "كم" : "km"}</span>
                     )}
                   </span>
+                  )}
                 </span>
               </span>
               </span>
@@ -764,10 +770,12 @@ export function StallPeek({
               <span className={ar ? "font-arabic" : undefined}>{count} {ar ? "تقييم" : count === 1 ? "review" : "reviews"}</span>
             </span>
           )}
+          {(shop.likes ?? 0) > 0 && (
           <span className="stall-card-likes">
             <HeartIcon />
-            {shop.likes ?? 0}
+            {shop.likes}
           </span>
+          )}
         </div>
         </div>
       </div>

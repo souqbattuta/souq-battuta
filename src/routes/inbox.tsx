@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SHOPS } from "@/lib/data";
+import { PLANS, SHOPS } from "@/lib/data";
 import { hasWord, shopMuted } from "@/lib/shelves";
-import { useSession } from "@/lib/session";
+import { directoryShops, useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 
@@ -18,6 +18,7 @@ function InboxPage() {
   const mutedStalls = useSession((s) => s.mutedStalls ?? []);
   const alertWords = useSession((s) => s.alertWords);
   const addReview = useSession((s) => s.addReview);
+  const accounts = useSession((s) => s.accounts);
 
   if (!user) {
     return (
@@ -73,9 +74,9 @@ function InboxPage() {
                 <p className="text-sm text-mute">{order.productName}</p>
                 {order.reviewed ? (
                   <p className="mt-2 text-xs text-mute">{t.saved}</p>
-                ) : (
+                ) : PLANS[directoryShops(accounts).find((shop) => shop.slug === order.shopSlug)?.plan ?? "free"].reviews ? (
                   <ReviewBox orderId={order.id} shopSlug={order.shopSlug} onSave={addReview} />
-                )}
+                ) : null}
               </li>
             ))}
           </ul>

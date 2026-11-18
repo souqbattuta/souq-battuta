@@ -347,6 +347,7 @@ export function SiteFooter() {
         <div>
           <p>{ar ? "السوق" : "The Souq"}</p>
           <Link to="/privacy">{t.privacy}</Link>
+          <Link to="/rules">{ar ? "القواعد" : "Rules"}</Link>
           <Link to="/contact">{ar ? "تواصل" : "Contact"}</Link>
           <Link to="/desk">{ar ? "مكتب السوق" : "Souq Desk"}</Link>
           {!import.meta.env.PROD && (

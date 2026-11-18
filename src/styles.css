@@ -201,3 +201,11 @@ button,[role=button]{cursor:pointer}html{font-family:"Source Serif 4",Noto Naskh
   .near-panel,.near-saved,.home,.home-section,.site-shell,.shelf-frame,.shelf-viewport.is-side,.cat-rail{min-width:0;max-width:100%}
 }
 
+.hw-row-actions{grid-area:1 / 3 / span 3;display:flex;flex-direction:column;gap:.3rem}
+.hw-row-actions .hw-delete{grid-area:auto}
+.hw-pick{display:flex;gap:.45rem;overflow:auto;padding-bottom:.15rem}
+.hw-pick button{border:2px solid transparent;border-radius:.45rem;padding:0;background:transparent}
+.hw-pick button.is-on{border-color:#1a2744}
+.hw-pick img{width:3.25rem;height:3.25rem;object-fit:cover;border-radius:.35rem;display:block}
+
+

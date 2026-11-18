@@ -321,6 +321,27 @@ function StallNote({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
   return <p className="mt-1 text-sm text-ink">{note}</p>;
 }
 
+function HoursStatus({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
+  const t = copy[lang];
+  if (shop.isOpen == null && !shop.hours) return <StallNote shop={shop} lang={lang} />;
+  return (
+    <>
+      {shop.isOpen == null ? (
+        <p className="mt-2 text-sm text-mute">{shop.hours}</p>
+      ) : (
+        <p className={cn("mt-2 text-sm font-semibold", shop.isOpen ? "text-stamp-green" : "text-mute")}>
+          {shop.isOpen ? `● ${t.open}` : `● ${t.closed}`}
+          {shop.hours ? ` · ${shop.hours}` : ""}
+        </p>
+      )}
+      {shop.isOpen === false && shop.contactWhenClosed !== false && !shop.closedNote && !shop.closedNoteAr && (
+        <p className="mt-1 text-xs text-mute">{lang === "ar" ? "مغلق، والتواصل مفتوح." : "Closed, and you can still message them."}</p>
+      )}
+      <StallNote shop={shop} lang={lang} />
+    </>
+  );
+}
+
 function BookmarkMenu({ shop, bookmarked }: { shop: Shop; bookmarked: boolean }) {
   const lang = useSession((s) => s.lang);
   const t = copy[lang];
@@ -599,8 +620,36 @@ function Gallery({
 }
 
 export function ShopView({ shop }: { shop: Shop }) {
+  const pet = shop.category === "pets" || (shop.categories ?? []).includes("pets");
   const page = shop.plan === "free" ? <FreeShop shop={shop} /> : shop.plan === "basic" ? <BasicShop shop={shop} /> : shop.plan === "grow" || shop.plan === "premium" ? <GrowShop shop={shop} /> : <PremiumShop shop={shop} />;
-  return <div className="shop-view">{page}</div>;
+  return (
+    <div className="shop-view">
+      {pet && <PetRuleLine />}
+      {page}
+    </div>
+  );
+}
+
+function PetRuleLine() {
+  return (
+    <p className="mx-4 mt-3 text-sm leading-snug text-ink sm:mx-8">
+      <span lang="en">Animal sales are prohibited. Adopt, don't shop.</span>
+      {" · "}
+      <span lang="ar" dir="rtl">بيع الحيوانات غير مسموح. التبني أولاً.</span>
+      {" · "}
+      <Link to="/rules" className="font-semibold underline">
+        Read rules
+      </Link>
+    </p>
+  );
+}
+
+function NewOnSouq({ lang }: { lang: "en" | "ar" }) {
+  return (
+    <p className="rounded-xl border border-line bg-cream px-4 py-6 text-sm text-mute">
+      {lang === "ar" ? "جدد على السوق، الأصناف قريباً." : "New on the Souq, items coming soon"}
+    </p>
+  );
 }
 
 function productCopy(product: Product, lang: "en" | "ar") {
@@ -721,7 +770,7 @@ function MenuTile({
         <span className="menu-price">{priceLabel(product, lang)}</span>
         {product.paused && <span className="block text-xs text-red">{pauseText(product, lang)}</span>}
         <span className="shop-tile-meta">
-          <span className="shop-tile-likes heart-count"><HeartIcon /> {likes}</span>
+          {likes > 0 && <span className="shop-tile-likes heart-count"><HeartIcon /> {likes}</span>}
           {own ? (
             <ItemEdit id={product.id} own seller={seller} loved={loved} lang={lang} onLove={onLove} />
           ) : !seller ? (
@@ -822,6 +871,10 @@ function FreeShop({ shop }: { shop: Shop }) {
           <div className="border-t-4 border-gold px-5 py-5">
             <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
+            <HoursStatus shop={shop} lang={ui.lang} />
+            {(shop.bio || shop.bioAr) && (
+              <p className="mt-4 text-sm leading-relaxed text-mute">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
+            )}
             {!ui.own && (
               <>
                 <p className="mt-4 font-display text-lg text-ink">{ui.lang === "ar" ? "استفسار" : "Inquiry"}</p>
@@ -856,11 +909,7 @@ function FreeShop({ shop }: { shop: Shop }) {
           <SectionTabs groups={groups} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
           {tab === "menu" || ui.own ? (
             <div className="mt-4 space-y-6">
-              {shop.products.length === 0 && (
-                <p className="rounded-xl border border-line bg-cream px-4 py-6 text-sm text-mute">
-                  {ui.lang === "ar" ? "ما في منتجات بعد." : "No products yet."}
-                </p>
-              )}
+              {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
               {shown.map((group) => (
                 <section key={group.key}>
                   {group.title && !sectionKey && <h3 className="mb-3 font-display text-2xl text-ink">{ui.lang === "ar" ? group.titleAr : group.title}</h3>}
@@ -975,17 +1024,10 @@ function BasicShop({ shop }: { shop: Shop }) {
               <Crown plan="basic" className="plan-badge profile-badge" />
             </div>
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
-            <p className={cn("mt-2 text-sm font-semibold", shop.isOpen ? "text-stamp-green" : "text-mute")}>
-              {shop.isOpen ? `● ${t.open}` : `● ${t.closed}`}
-              {shop.hours ? ` · ${shop.hours}` : ""}
-            </p>
-            {!shop.isOpen && shop.contactWhenClosed !== false && !shop.closedNote && !shop.closedNoteAr && (
-              <p className="mt-1 text-xs text-mute">{ui.lang === "ar" ? "مغلق، والتواصل مفتوح." : "Closed, and you can still message them."}</p>
-            )}
-            <StallNote shop={shop} lang={ui.lang} />
-            {shop.views != null && (
+            <HoursStatus shop={shop} lang={ui.lang} />
+            {(shop.views ?? 0) > 0 && (
               <p className="mt-1 text-xs text-mute">
-                {t.views}: {shop.views.toLocaleString()}
+                {t.views}: {shop.views!.toLocaleString()}
               </p>
             )}
             {(shop.bio || shop.bioAr) && (
@@ -1030,6 +1072,7 @@ function BasicShop({ shop }: { shop: Shop }) {
           <SectionTabs groups={groups} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
           {tab === "menu" || ui.own || !canMessage ? (
             <div className="mt-4 space-y-6">
+              {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
               {shown.map((group) => (
                 <section key={group.key}>
                   {group.title && !sectionKey && <h3 className="mb-3 font-display text-2xl text-ink">{ui.lang === "ar" ? group.titleAr : group.title}</h3>}
@@ -1302,7 +1345,7 @@ function GrowShop({ shop }: { shop: Shop }) {
               >
                 <HeartIcon />
               </button>
-              <span className="pe-2 text-sm font-semibold">{totalLikes.toLocaleString()}</span>
+              {totalLikes > 0 && <span className="pe-2 text-sm font-semibold">{totalLikes.toLocaleString()}</span>}
             </span>
             )}
           </div>
@@ -1311,6 +1354,7 @@ function GrowShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan={shop.plan} className="plan-badge profile-badge" />
             </h1>
+            {shop.isOpen != null && (
             <div className="mt-4 overflow-hidden rounded-lg border-2 border-ink bg-ink text-center text-cream">
               <div className="flex items-center justify-center gap-2 px-3 py-3">
                 <span
@@ -1324,11 +1368,13 @@ function GrowShop({ shop }: { shop: Shop }) {
               </div>
               {shop.hours && <p className="border-t border-cream/20 px-3 py-2 text-xs tracking-wide text-cream">{shop.hours}</p>}
             </div>
-            <p className="mt-2 text-xs text-mute">{t.views} · {shop.views?.toLocaleString() ?? 0}</p>
+            )}
+            {shop.isOpen == null && shop.hours && <p className="mt-4 text-sm text-mute">{shop.hours}</p>}
+            {(shop.views ?? 0) > 0 && <p className="mt-2 text-xs text-mute">{t.views} · {shop.views!.toLocaleString()}</p>}
             <StallNote shop={shop} lang={ui.lang} />
             <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{t.followers} {followerCount.toLocaleString()}</span>
-                {pro && <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{orderLabel} {orderCount.toLocaleString()}</span>}
+                {followerCount > 0 && <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{t.followers} {followerCount.toLocaleString()}</span>}
+                {pro && orderCount > 0 && <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{orderLabel} {orderCount.toLocaleString()}</span>}
                 <button
                   type="button"
                   aria-pressed={following}
@@ -1696,11 +1742,11 @@ function PremiumShop({ shop }: { shop: Shop }) {
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-4">
           {[
-            shop.isOpen ? t.open : t.closed,
-            `${shop.views?.toLocaleString()} ${t.views}`,
-            `${shop.rating} · ${shop.reviewCount} ${t.reviews}`,
+            shop.isOpen == null ? "" : shop.isOpen ? t.open : t.closed,
+            (shop.views ?? 0) > 0 ? `${shop.views!.toLocaleString()} ${t.views}` : "",
+            `${shop.rating ?? "–"} · ${shop.reviewCount ?? 0} ${t.reviews}`,
             shop.hours ?? "",
-          ].map((s) => (
+          ].filter(Boolean).map((s) => (
             <div key={s} className="rounded-lg border border-line bg-cream px-3 py-3 text-sm">
               {s}
             </div>

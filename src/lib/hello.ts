@@ -14,7 +14,7 @@ export type HelloPost = {
   hearts?: number;
   expiresAt?: number;
   editUntil?: number;
-  status?: "live" | "hidden" | "removed";
+  status?: "live" | "hidden" | "removed" | "archived";
   thumb?: string;
 };
 
@@ -34,7 +34,7 @@ export function ammanDay(ts = Date.now()) {
 }
 
 export function helloLive(post: HelloPost, now = Date.now()) {
-  if (post.status === "hidden" || post.status === "removed") return false;
+  if (post.status === "hidden" || post.status === "removed" || post.status === "archived") return false;
   const end = post.expiresAt ?? post.at + HELLO_WINDOW;
   return end > now;
 }
@@ -146,6 +146,8 @@ export function helloFailCopy(code: string, ar: boolean) {
     database: "The shop database is not ready. Try again.",
     auth: "Sign in as a seller to post.",
     name: "Add a line and a photo.",
+    plan: "Repost is on the Premium plan.",
+    missing: "That archive post is gone.",
   };
   const arabic: Record<string, string> = {
     limit: "خلصت المشاركات لهذه الساعات.",
@@ -159,6 +161,8 @@ export function helloFailCopy(code: string, ar: boolean) {
     database: "قاعدة الدكاكين غير جاهزة. حاول مرة ثانية.",
     auth: "سجّل الدخول كبائع.",
     name: "اكتب سطر وضيف صورة.",
+    plan: "إعادة النشر على الخطة المميزة.",
+    missing: "هذا الأرشيف ما عاد موجود.",
   };
   const table = ar ? arabic : en;
   return table[code] ?? (ar ? "النشر ما اكتمل. ما انخصم من رصيدك. حاول مرة ثانية." : "Publishing did not finish. Your allowance was not used. Try again.");

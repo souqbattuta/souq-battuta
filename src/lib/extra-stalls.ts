@@ -1,6 +1,6 @@
 import type { Shop } from "./data";
 
-const phone = "+962795636663";
+const phone = "";
 const duck = "/brand/avatars/seller-duck.jpg?v=2";
 
 function premium(shop: Omit<Shop, "phone" | "mode">): Shop {

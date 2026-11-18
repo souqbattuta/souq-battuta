@@ -68,28 +68,6 @@ function SignInPage() {
     const result = res as { ok: boolean; error?: string };
     setLoading(false);
     if (!result.ok) {
-      if (result.error === "reset") {
-        const startJoin = useSession.getState().startJoin as (input: {
-          phone: string;
-          password: string;
-          username: string;
-          displayName: string;
-          intent: "buyer";
-        }) => Promise<{ ok: boolean; error?: string }>;
-        const staged = await startJoin({
-          phone,
-          password,
-          username: phone.slice(-4),
-          displayName: phone.slice(-4),
-          intent: "buyer",
-        });
-        if (staged.ok) {
-          void navigate({ to: "/otp" });
-          return;
-        }
-        setError(staged.error === "unconfigured" ? t.otpUnconfigured : t.mustReset);
-        return;
-      }
       setError(
         result.error === "phone"
           ? t.invalidPhone
@@ -103,7 +81,9 @@ function SignInPage() {
                   ? t.needVerify
                   : result.error === "password"
                     ? t.wrongPass
-                    : t.shortPass,
+                    : result.error === "reset"
+                      ? t.mustReset
+                      : t.shortPass,
       );
       return;
     }
@@ -170,6 +150,11 @@ function SignInPage() {
                   required
                 />
               </label>
+              <p className="text-end text-sm">
+                <Link to="/forgot" search={{ role }} className="font-semibold text-ink underline">
+                  {t.forgot}
+                </Link>
+              </p>
               {error && (
                 <p className="rounded-md bg-red/10 px-3 py-2 text-sm text-red" role="alert">
                   {error}

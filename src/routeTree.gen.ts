@@ -17,17 +17,20 @@ import { Route as ChecklistRouteImport } from './routes/checklist'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as DeskRouteImport } from './routes/desk'
 import { Route as DiscoverRouteImport } from './routes/discover'
+import { Route as ForgotRouteImport } from './routes/forgot'
 import { Route as HelloRouteImport } from './routes/hello'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as JoinRouteImport } from './routes/join'
 import { Route as OtpRouteImport } from './routes/otp'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as RulesRouteImport } from './routes/rules'
 import { Route as SellRouteImport } from './routes/sell'
 import { Route as SellerRouteImport } from './routes/seller'
 import { Route as ShelfRouteImport } from './routes/shelf'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as WelcomeRouteImport } from './routes/welcome'
+import { Route as ApiHelloCleanupRouteImport } from './routes/api/hello-cleanup'
 import { Route as BuyerUsernameRouteImport } from './routes/buyer.$username'
 import { Route as CategoryIdRouteImport } from './routes/category.$id'
 import { Route as JoinIndexRouteImport } from './routes/join.index'
@@ -77,6 +80,11 @@ const DiscoverRoute = DiscoverRouteImport.update({
   path: '/discover',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotRoute = ForgotRouteImport.update({
+  id: '/forgot',
+  path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HelloRoute = HelloRouteImport.update({
   id: '/hello',
   path: '/hello',
@@ -107,6 +115,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RulesRoute = RulesRouteImport.update({
+  id: '/rules',
+  path: '/rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SellRoute = SellRouteImport.update({
   id: '/sell',
   path: '/sell',
@@ -130,6 +143,11 @@ const SignInRoute = SignInRouteImport.update({
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHelloCleanupRoute = ApiHelloCleanupRouteImport.update({
+  id: '/api/hello-cleanup',
+  path: '/api/hello-cleanup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuyerUsernameRoute = BuyerUsernameRouteImport.update({
@@ -182,17 +200,20 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/desk': typeof DeskRoute
   '/discover': typeof DiscoverRoute
+  '/forgot': typeof ForgotRoute
   '/hello': typeof HelloRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/join': typeof JoinRouteWithChildren
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
+  '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
   '/join/buyer': typeof JoinBuyerRoute
@@ -211,16 +232,19 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/desk': typeof DeskRoute
   '/discover': typeof DiscoverRoute
+  '/forgot': typeof ForgotRoute
   '/hello': typeof HelloRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
+  '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
   '/join/buyer': typeof JoinBuyerRoute
@@ -240,17 +264,20 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/desk': typeof DeskRoute
   '/discover': typeof DiscoverRoute
+  '/forgot': typeof ForgotRoute
   '/hello': typeof HelloRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/join': typeof JoinRouteWithChildren
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
   '/welcome': typeof WelcomeRoute
+  '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
   '/join/buyer': typeof JoinBuyerRoute
@@ -271,17 +298,20 @@ export interface FileRouteTypes {
     | '/contact'
     | '/desk'
     | '/discover'
+    | '/forgot'
     | '/hello'
     | '/home'
     | '/inbox'
     | '/join'
     | '/otp'
     | '/privacy'
+    | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
     | '/welcome'
+    | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
     | '/join/buyer'
@@ -300,16 +330,19 @@ export interface FileRouteTypes {
     | '/contact'
     | '/desk'
     | '/discover'
+    | '/forgot'
     | '/hello'
     | '/home'
     | '/inbox'
     | '/otp'
     | '/privacy'
+    | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
     | '/welcome'
+    | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
     | '/join/buyer'
@@ -328,17 +361,20 @@ export interface FileRouteTypes {
     | '/contact'
     | '/desk'
     | '/discover'
+    | '/forgot'
     | '/hello'
     | '/home'
     | '/inbox'
     | '/join'
     | '/otp'
     | '/privacy'
+    | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
     | '/welcome'
+    | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
     | '/join/buyer'
@@ -358,17 +394,20 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   DeskRoute: typeof DeskRoute
   DiscoverRoute: typeof DiscoverRoute
+  ForgotRoute: typeof ForgotRoute
   HelloRoute: typeof HelloRoute
   HomeRoute: typeof HomeRoute
   InboxRoute: typeof InboxRoute
   JoinRoute: typeof JoinRouteWithChildren
   OtpRoute: typeof OtpRoute
   PrivacyRoute: typeof PrivacyRoute
+  RulesRoute: typeof RulesRoute
   SellRoute: typeof SellRoute
   SellerRoute: typeof SellerRoute
   ShelfRoute: typeof ShelfRoute
   SignInRoute: typeof SignInRoute
   WelcomeRoute: typeof WelcomeRoute
+  ApiHelloCleanupRoute: typeof ApiHelloCleanupRoute
   BuyerUsernameRoute: typeof BuyerUsernameRoute
   CategoryIdRoute: typeof CategoryIdRoute
   SSlugRoute: typeof SSlugRoute
@@ -433,6 +472,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DiscoverRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot': {
+      id: '/forgot'
+      path: '/forgot'
+      fullPath: '/forgot'
+      preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/hello': {
       id: '/hello'
       path: '/hello'
@@ -475,6 +521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/rules': {
+      id: '/rules'
+      path: '/rules'
+      fullPath: '/rules'
+      preLoaderRoute: typeof RulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sell': {
       id: '/sell'
       path: '/sell'
@@ -508,6 +561,13 @@ declare module '@tanstack/react-router' {
       path: '/welcome'
       fullPath: '/welcome'
       preLoaderRoute: typeof WelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hello-cleanup': {
+      id: '/api/hello-cleanup'
+      path: '/api/hello-cleanup'
+      fullPath: '/api/hello-cleanup'
+      preLoaderRoute: typeof ApiHelloCleanupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/buyer/$username': {
@@ -594,17 +654,20 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   DeskRoute: DeskRoute,
   DiscoverRoute: DiscoverRoute,
+  ForgotRoute: ForgotRoute,
   HelloRoute: HelloRoute,
   HomeRoute: HomeRoute,
   InboxRoute: InboxRoute,
   JoinRoute: JoinRouteWithChildren,
   OtpRoute: OtpRoute,
   PrivacyRoute: PrivacyRoute,
+  RulesRoute: RulesRoute,
   SellRoute: SellRoute,
   SellerRoute: SellerRoute,
   ShelfRoute: ShelfRoute,
   SignInRoute: SignInRoute,
   WelcomeRoute: WelcomeRoute,
+  ApiHelloCleanupRoute: ApiHelloCleanupRoute,
   BuyerUsernameRoute: BuyerUsernameRoute,
   CategoryIdRoute: CategoryIdRoute,
   SSlugRoute: SSlugRoute,

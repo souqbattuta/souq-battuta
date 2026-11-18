@@ -6,7 +6,10 @@ import { formatJod, type Product, type Shop } from "@/lib/data";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
 
-const ORDER_PHONE = "962795636663";
+function waDigits(phone: string | undefined) {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  return digits.length >= 8 ? digits : "";
+}
 const GREET = "★★★ *Hello from Souq Battuta* ★★★";
 const GREET_AR = "★★★  *هلا بيك من سوق بطوطة*  ★★★";
 
@@ -61,6 +64,15 @@ export function WhatsAppCta({
   const [addressId, setAddressId] = useState("");
   const [live, setLive] = useState<{ lat: number; lng: number } | null>(null);
   const [locNote, setLocNote] = useState("");
+
+  const digits = waDigits(shop.phone);
+  if (!digits) {
+    return (
+      <p className="text-sm text-mute">
+        {lang === "ar" ? "هذا الدكان ما أضاف واتساب بعد." : "This shop hasn't added WhatsApp yet"}
+      </p>
+    );
+  }
 
   if (!user) {
     return (
@@ -118,7 +130,7 @@ export function WhatsAppCta({
   const photos = lines.map((line) => line.product.images[0]).filter(Boolean).slice(0, 3);
 
   function sendBoth() {
-    const phone = ORDER_PHONE;
+    const phone = digits;
     placeOrder({
       shopSlug: shop.slug,
       shopName: shop.name,
@@ -140,7 +152,7 @@ export function WhatsAppCta({
           <OptImg src={shop.avatar} alt="" className="size-9 rounded-full object-cover" />
           <div>
             <div className="text-sm font-semibold">{shop.name}</div>
-            <div className="text-[11px] opacity-80">{ORDER_PHONE}</div>
+            <div className="text-[11px] opacity-80">{digits}</div>
           </div>
         </div>
         <div className="p-4">
@@ -162,7 +174,7 @@ export function WhatsAppCta({
           </p>
           <a
             className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-md bg-wa font-semibold text-white"
-            href={`https://wa.me/${ORDER_PHONE}?text=${encodeURIComponent(orderMessage)}`}
+            href={`https://wa.me/${digits}?text=${encodeURIComponent(orderMessage)}`}
             target="_blank"
             rel="noreferrer"
           >

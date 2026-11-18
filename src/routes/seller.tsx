@@ -165,7 +165,7 @@ function SellerDesk() {
   const tab = tabFromUrl;
   const planId = user.sellerPlan ?? "free";
   const plan = PLANS[planId];
-  const subCount = planId === "grow" || planId === "premium" ? 5 : planId === "free" ? 3 : plan.images - 1;
+  const subCount = Math.max(0, plan.images - 1);
   const profileSlug = user.shopSlug || slugForSeller(user);
   const account = accounts[user.phone];
   const grow = planId === "grow" || planId === "premium";
@@ -684,7 +684,7 @@ function SellerDesk() {
         {tab === "hello" && (
           <section className="mt-6">
             <h2 className="font-display text-2xl">Hello, World!</h2>
-            <p className="hw-note">{ar ? "احكِ مع مجتمعك من هنا. كل منشور يبقى ٢٤ ساعة من وقت نشره، والسجل بيضل لشهر." : "Talk to your community here. Each post stays up for 24 hours from the time it was published. History keeps it for a month."}</p>
+            <p className="hw-note">{ar ? "احكِ مع مجتمعك من هنا. كل منشور يبقى ٢٤ ساعة من وقت نشره. المجاني بلا سجل. الأساسي يبقي المصغّرة ٣٠ يوماً، والنمو ٩٠، والمميز يبقيها مع إعادة النشر." : "Talk to your community here. Each post stays up for 24 hours from the time it was published. Free keeps no history. Basic keeps a thumbnail for 30 days, Grow for 90, and Premium keeps it with Repost."}</p>
             <HelloComposer />
           </section>
         )}
