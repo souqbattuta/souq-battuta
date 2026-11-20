@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { PLANS, type Shop } from "@/lib/data";
+import { PLANS, SELLER_CATEGORY_IDS, type Shop } from "@/lib/data";
 import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
@@ -21,6 +21,7 @@ const passwordSchema = z
   .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/);
 
 const ORDER_STATUS = z.enum(["new", "preparing", "done", "cancelled"]);
+const SELLER_CAT = z.enum(SELLER_CATEGORY_IDS);
 const PLAN = z.enum(["free", "basic", "grow", "premium"]);
 
 const profileSchema = z
@@ -32,7 +33,7 @@ const profileSchema = z
     bio: z.string().trim().max(500).optional(),
     intent: z.enum(["buyer", "seller"]).optional(),
     plan: PLAN.optional(),
-    categories: z.array(z.string().trim().max(40)).max(8).optional(),
+    categories: z.array(SELLER_CAT).max(2).optional(),
     promoCode: z.string().trim().max(40).optional(),
     areaLat: z.number().finite().optional(),
     areaLng: z.number().finite().optional(),
@@ -53,7 +54,7 @@ const pushSchema = z
     city: z.string().trim().max(80).optional(),
     bio: z.string().trim().max(500).optional(),
     address: z.string().trim().max(200).optional(),
-    categories: z.array(z.string().trim().max(40)).max(8).optional(),
+    categories: z.array(SELLER_CAT).max(2).optional(),
     stallOpens: z.string().trim().max(8).optional(),
     stallCloses: z.string().trim().max(8).optional(),
     stallDays: z.string().trim().max(40).optional(),
@@ -310,7 +311,7 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
       phone: z.string().trim().min(8).max(20),
       plan: PLAN.optional(),
       promoCode: z.string().trim().max(40).optional(),
-      categories: z.array(z.string().trim().max(40)).max(8).optional(),
+      categories: z.array(SELLER_CAT).max(2).optional(),
       shopName: z.string().trim().min(2).max(80).optional(),
       billingPeriod: z.enum(["monthly", "yearly"]).optional(),
       paymentStatus: z.enum(["pending", "active"]).optional(),
@@ -905,6 +906,40 @@ export const syncSouqAlgo = createServerFn({ method: "POST" })
     return { ok: true as const, algo: readAlgo(blob) };
   });
 
+export const shopTopItems = createServerFn({ method: "POST" })
+  .validator(z.object({ slug: z.string().trim().min(2).max(80) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const listings = await sql<{ id: string; name: string }>`
+      select id, name from souq_listings where shop_slug = ${data.slug}
+    `;
+    const ids = new Set(listings.map((row) => row.id));
+    const names = new Map(listings.map((row) => [row.id, row.name]));
+    const done = await sql<{ product_name: string; n: number }>`
+      select product_name, count(*)::int as n from souq_orders
+      where shop_slug = ${data.slug} and status = 'done'
+      group by product_name
+    `;
+    const byName = new Map(done.map((row) => [row.product_name, Number(row.n)]));
+    const likes = new Map<string, number>();
+    if (ids.size) {
+      const accounts = await sql<{ data: { favorites?: unknown } }>`select data from souq_accounts`;
+      for (const row of accounts) {
+        const favs = row.data?.favorites;
+        if (!Array.isArray(favs)) continue;
+        for (const id of favs) {
+          if (typeof id === "string" && ids.has(id)) likes.set(id, (likes.get(id) ?? 0) + 1);
+        }
+      }
+    }
+    const items = listings
+      .map((row) => ({ id: row.id, name: names.get(row.id) || row.name, score: (likes.get(row.id) ?? 0) + (byName.get(row.name) ?? 0) }))
+      .filter((row) => row.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+    return { ok: true as const, items };
+  });
+
 export const patchSouqOrder = createServerFn({ method: "POST" })
   .validator(z.object({ orderId: z.string().trim().min(2).max(80), status: ORDER_STATUS }))
   .handler(async ({ data }) => {
@@ -1074,6 +1109,7 @@ export const saveSouqListing = createServerFn({ method: "POST" })
     const image = (data.imageUrl && !data.imageUrl.startsWith("data:") ? data.imageUrl : images[0]) ?? null;
     const thumb = (data.thumbUrl && !data.thumbUrl.startsWith("data:") ? data.thumbUrl : image) ?? null;
     const body: Record<string, unknown> = { ...(data.body ?? {}), images, hidden: Boolean(data.hidden) };
+    if (typeof body.video === "string" && (body.video.startsWith("data:") || (account.plan !== "premium" && account.plan !== "grow"))) delete body.video;
     delete body.password;
     const existing = await sql<{ id: string }>`select id from souq_listings where id = ${data.id} and owner_phone = ${phone}`;
     if (!existing[0]) {

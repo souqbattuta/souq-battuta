@@ -230,8 +230,8 @@ export const copy = {
     wrongPass: "That password does not match this number",
     badOtp: "That code does not match.",
     homeTitle: "Jordan bil",
-    values: ["Freedom", "Culture", "Unity", "Curiosity"],
-    valuesAr: ["حرية", "ثقافة", "وحدة", "فضول"],
+    values: ["Freedom", "Culture", "Unity", "Community"],
+    valuesAr: ["حرية", "ثقافة", "وحدة", "مجتمع"],
   },
   ar: {
     join: "انضم",
@@ -462,8 +462,8 @@ export const copy = {
     wrongPass: "كلمة السر لا تطابق هذا الرقم",
     badOtp: "الرمز غير مطابق.",
     homeTitle: "الأردن بال",
-    values: ["حرية", "ثقافة", "وحدة", "فضول"],
-    valuesAr: ["Freedom", "Culture", "Unity", "Curiosity"],
+    values: ["حرية", "ثقافة", "وحدة", "مجتمع"],
+    valuesAr: ["Freedom", "Culture", "Unity", "Community"],
   },
 } as const;
 

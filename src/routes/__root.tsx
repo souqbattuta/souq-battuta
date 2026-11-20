@@ -37,9 +37,10 @@ function describe(path: string) {
   const known = PAGE_COPY[path] ?? PAGE_COPY[path.replace(/\/$/, "")];
   if (known) return { title: known[0], description: known[1] };
   if (path.startsWith("/category/")) {
-    const id = decodeURIComponent(path.split("/")[2] || "Category");
-    const name = id.charAt(0).toUpperCase() + id.slice(1);
-    return { title: `${name} · Souq Battuta`, description: `${name} shops on Souq Battuta.` };
+    const id = decodeURIComponent(path.split("/")[2] || "");
+    const known = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes", "all"];
+    const name = known.includes(id) ? id.charAt(0).toUpperCase() + id.slice(1) : "Aisle";
+    return { title: `${name} · Souq Battuta`, description: known.includes(id) ? `${name} shops on Souq Battuta.` : "This aisle is not open." };
   }
   if (path.startsWith("/shop/")) {
     const name = decodeURIComponent(path.split("/")[2] || "Shop").replace(/-/g, " ");
@@ -65,6 +66,7 @@ export const Route = createRootRoute({
         { title: info.title },
         { name: "theme-color", content: "#1C305C" },
         { name: "description", content: info.description },
+        { name: "application-name", content: APP_NAME },
         { name: "robots", content: "index, follow" },
       ],
       links: [

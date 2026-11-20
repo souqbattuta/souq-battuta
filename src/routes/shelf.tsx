@@ -43,8 +43,9 @@ function ShelfPage() {
   const catalog = useMemo(() => {
     const all = directoryShops(accounts);
     const cat = CATEGORIES.find((item) => item.id === aisle);
-    if (!cat || cat.id === "all") return all;
-    return all.filter((shop) => shop.category === (cat.id as CategoryId));
+    if (aisle && !cat) return [];
+    if (!cat || cat.id === "all") return all.filter((shop) => !shop.offAisle);
+    return all.filter((shop) => !shop.offAisle && (shop.category === cat.id || (shop.categories ?? []).includes(cat.id as CategoryId)));
   }, [accounts, aisle, serverShops]);
   const tieSeed = useTieSeed();
   const browsedCategories = useMemo(() => {

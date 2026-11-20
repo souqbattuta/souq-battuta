@@ -58,6 +58,27 @@ export function SiteHeader({
     return (
       <div className="site-banner-slot">
       <header className="site-banner">
+        <div className="phone-slim">
+          <Link to={user ? "/home" : "/"} className="phone-slim-brand" aria-label="Souq Battuta">
+            <img src="/brand/duck-mark.png" alt="" />
+            <span>
+              <b>Souq Battuta</b>
+              <i className="font-arabic">سوق بطوطة</i>
+            </span>
+          </Link>
+          <div className="phone-slim-side">
+            <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
+              {lang === "ar" ? "English" : "العربية"}
+            </button>
+            {user ? (
+              <Link to={user.role === "seller" ? "/seller" : "/account"} search={user.role === "seller" ? { item: "", tab: "analytics", order: "", note: "" } : { tab: "", note: "" }} aria-label={t.account}>
+                <img src={avatar} alt="" />
+              </Link>
+            ) : (
+              <Link to="/sign-in" search={{ next: "/home" }}>{lang === "ar" ? "دخول" : "Log in"}</Link>
+            )}
+          </div>
+        </div>
         <div className="site-banner-frame">
           <OptImg className="site-banner-img banner-phone" src="/brand/banner-phone-header.png" alt="" eager />
           <OptImg className="site-banner-img banner-desk" src="/brand/banner-desktop.png" alt="" eager />
@@ -364,21 +385,90 @@ export function Shell({ children }: { children: ReactNode }) {
   const lang = useSession((s) => s.lang);
   const path = useRouterState({ select: (state) => state.location.pathname });
   const showBack = path !== "/" && path !== "/home";
+  const sellerDesk = path === "/seller" || path.startsWith("/seller/");
+  const shopPage = path.startsWith("/shop/");
   return (
-    <div className={cn("site-shell flex flex-col", lang === "ar" ? "dir-rtl" : "dir-ltr")}>
+    <div className={cn("site-shell flex flex-col", shopPage && "is-shop", lang === "ar" ? "dir-rtl" : "dir-ltr")}>
       <SiteHeader />
       <SouqSync />
       {showBack && <PageBack lang={lang} />}
       {children}
       <SiteFooter />
+      {!sellerDesk && <BuyerTabs lang={lang} path={path} />}
     </div>
+  );
+}
+
+function HelloMotif({ active }: { active: boolean }) {
+  return <img src={active ? "/brand/hello-motif-a-active.svg" : "/brand/hello-motif-a-inactive.svg"} alt="" width={24} height={24} />;
+}
+
+function BuyerTabs({ lang, path }: { lang: "en" | "ar"; path: string }) {
+  const ar = lang === "ar";
+  const search = useRouterState({ select: (state) => state.location.search }) as { tab?: string };
+  const onSaved = path === "/account" && search?.tab === "saved";
+  const onAccount = path === "/account" && !onSaved;
+  return (
+    <nav className="buyer-tabs" aria-label={ar ? "التصفح" : "Browse"}>
+      <Link to="/home" aria-current={path === "/home" ? "page" : undefined}>
+        <TabIcon kind="home" />
+        <span>{ar ? "الرئيسية" : "Home"}</span>
+      </Link>
+      <Link to="/discover" search={{ q: "" }} aria-current={path.startsWith("/discover") ? "page" : undefined}>
+        <TabIcon kind="search" />
+        <span>{ar ? "بحث" : "Search"}</span>
+      </Link>
+      <Link to="/hello" search={{ tab: "for-you", at: "", post: "" }} className="buyer-tab-hello" aria-current={path.startsWith("/hello") ? "page" : undefined}>
+        <HelloMotif active={path.startsWith("/hello")} />
+        <span>Hello World</span>
+      </Link>
+      <Link to="/account" search={{ tab: "saved", note: "" }} aria-current={onSaved ? "page" : undefined}>
+        <TabIcon kind="saved" />
+        <span>{ar ? "المحفوظ" : "Saved"}</span>
+      </Link>
+      <Link to="/account" search={{ tab: "", note: "" }} aria-current={onAccount ? "page" : undefined}>
+        <TabIcon kind="account" />
+        <span>{ar ? "حسابي" : "Account"}</span>
+      </Link>
+    </nav>
+  );
+}
+
+function TabIcon({ kind }: { kind: "home" | "search" | "saved" | "account" }) {
+  if (kind === "home") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 11.5 12 4l8 7.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (kind === "search") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M16 16l5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (kind === "saved") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 4h10a1 1 0 0 1 1 1v15l-6-3.5L6 20V5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M5.5 19.5c1.4-3 3.6-4.5 6.5-4.5s5.1 1.5 6.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 
 function PageBack({ lang }: { lang: "en" | "ar" }) {
   const navigate = useNavigate();
   return (
-    <div className="px-4 pt-3 sm:px-6">
+    <div className="page-back px-4 pt-3 sm:px-6">
       <button
         type="button"
         className="inline-flex h-10 items-center rounded-full bg-ink px-4 text-sm font-semibold text-cream"

@@ -243,7 +243,7 @@ function FollowedLists({
 
 export const Route = createFileRoute("/account")({
   validateSearch: (s: Record<string, unknown>) => ({
-    tab: s.tab === "inbox" ? "inbox" as const : "",
+    tab: s.tab === "inbox" ? "inbox" as const : s.tab === "saved" ? "saved" as const : "",
     note: typeof s.note === "string" ? s.note : "",
   }),
   component: AccountPage,
@@ -486,10 +486,14 @@ function AccountPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>(tabFromUrl === "inbox" ? "inbox" : "algo");
+  const [favTab, setFavTab] = useState<"liked" | "stalls">(tabFromUrl === "saved" ? "stalls" : "liked");
   useEffect(() => {
     if (tabFromUrl === "inbox") setTab("inbox");
+    if (tabFromUrl === "saved") {
+      setTab("favorites");
+      setFavTab("stalls");
+    }
   }, [tabFromUrl]);
-  const [favTab, setFavTab] = useState<"liked" | "stalls">("liked");
   const [openList, setOpenList] = useState("");
   const [listName, setListName] = useState("");
   const [username, setUsername] = useState(user?.username ?? "");

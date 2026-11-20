@@ -68,5 +68,5 @@ test("public catalogs drop an explicit demo flag and keep a real shop named Test
   const production = buyerVisibleShops([demo, named, real], true).map((shop) => shop.slug);
   assert.deepEqual(production, ["latest-test-batch", "paw-leather"]);
   const preview = buyerVisibleShops([demo, named, real], false).map((shop) => shop.slug);
-  assert.deepEqual(preview, ["paper-stall", "latest-test-batch", "paw-leather"]);
+  assert.deepEqual(preview, ["latest-test-batch", "paw-leather"]);
 });

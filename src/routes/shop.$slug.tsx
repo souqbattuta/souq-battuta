@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
-import { shopBySlug, type Shop } from "@/lib/data";
+import { shopBySlug, isSellerCategory, type Shop } from "@/lib/data";
 import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, sellerWhatsapp, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
 import { Shell } from "@/components/site-header";
 import { ShopView } from "@/components/shop-page";
@@ -13,14 +13,16 @@ function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listing
     .filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
     .map((item) => publicProduct(item, premium))
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const stored = (account.categories ?? []).filter((id) => isSellerCategory(id));
   return {
     slug,
     name: account.displayName || account.username,
     nameAr: account.displayName || account.username,
     area: account.city || "Amman",
     areaAr: account.city || "عمّان",
-    category: (account.categories?.[0] ?? "misc") as Shop["category"],
-    categories: account.categories,
+    category: stored[0] ?? "misc",
+    offAisle: (account.categories ?? []).length > 0 && stored.length === 0,
+    categories: stored,
     plan: account.sellerPlan ?? "free",
     phone: sellerWhatsapp(account),
     avatar: account.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || "/brand/avatars/default-duck.jpg",
@@ -106,7 +108,7 @@ export function ShopPage({ slug }: { slug: string }) {
     sessionStorage.setItem(key, "1");
     bumpStallViews(slug);
   }, [bumpStallViews, noteVisit, shop, slug, viewer]);
-  if (!shop) {
+  if (!shop || shop.demo) {
     return (
       <Shell>
         <main className="px-6 py-16">

@@ -46,6 +46,10 @@ export function SouqSync() {
         if (PRIVATE.includes(key)) continue;
         body[key] = value;
       }
+      if (Array.isArray(body.categories)) {
+        const launch = new Set(["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"]);
+        body.categories = (body.categories as unknown[]).filter((id) => typeof id === "string" && launch.has(id)).slice(0, 2);
+      }
       const snap = JSON.stringify(body);
       if (snap === lastPushed) return;
       try {

@@ -42,6 +42,7 @@ function SellerDesk() {
   const lang = useSession((s) => s.lang);
   const t = copy[lang];
   const user = useSession((s) => s.user);
+  const signOut = useSession((s) => s.signOut);
   const accounts = useSession((s) => s.accounts);
   const listings = useSession((s) => s.listings);
   const addListing = useSession((s) => s.addListing);
@@ -74,6 +75,9 @@ function SellerDesk() {
   const [editingId, setEditingId] = useState(item);
   const [mainPhoto, setMainPhoto] = useState<string | null>(null);
   const [subPhotos, setSubPhotos] = useState<(string | null)[]>([null, null, null, null, null]);
+  const [video, setVideo] = useState<string | null>(null);
+  const [phoneTab, setPhoneTab] = useState<"today" | "items" | "shop" | "more">("today");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [priceMode, setPriceMode] = useState<"price" | "na" | "inquire">("price");
   const [nameDraft, setNameDraft] = useState("");
   const [nameArDraft, setNameArDraft] = useState("");
@@ -190,6 +194,7 @@ function SellerDesk() {
     if (found) {
       setMainPhoto(found.images[0] ?? null);
       setSubPhotos([found.images[1] ?? null, found.images[2] ?? null, found.images[3] ?? null, found.images[4] ?? null, found.images[5] ?? null]);
+      setVideo(found.video ?? null);
       setPriceMode(found.priceMode ?? "price");
       setNameDraft(found.name);
       setNameArDraft(found.nameAr === found.name ? "" : found.nameAr);
@@ -226,6 +231,7 @@ function SellerDesk() {
       return;
     }
     const images = [mainPhoto, ...subPhotos.slice(0, subCount)].filter((src): src is string => Boolean(src));
+    const allowVideo = planId === "premium" || planId === "grow";
     const payload = {
       name: nameDraft,
       nameAr: nameArDraft,
@@ -236,8 +242,9 @@ function SellerDesk() {
       group: groupDraft,
       groupAr: groupArDraft,
       images,
-      choices: planId === "premium" ? toChoices(choices) : undefined,
-      chart: planId === "premium" ? chart || undefined : undefined,
+      video: allowVideo ? video || "" : "",
+      choices: planId === "premium" || planId === "grow" ? toChoices(choices) : undefined,
+      chart: planId === "premium" || planId === "grow" ? chart || undefined : undefined,
     };
     const res = editingId ? await updateListing(editingId, payload) : await addListing(payload);
     if (!res?.ok) {
@@ -261,6 +268,7 @@ function SellerDesk() {
     setEditingId("");
     setMainPhoto(null);
     setSubPhotos([null, null, null, null, null]);
+    setVideo(null);
     setChoices([]);
     setChart(null);
     setNameDraft("");
@@ -310,7 +318,7 @@ function SellerDesk() {
   return (
     <Shell>
       <main className="seller-desk px-4 py-6 sm:px-8">
-        <div className="flex gap-2" role="tablist">
+        <div className="desk-mode flex gap-2" role="tablist">
           <button type="button" role="tab" className={`h-11 rounded-lg px-4 text-sm font-semibold ${tab === "edit" ? "bg-ink text-cream" : "bg-sand"}`} onClick={() => chooseTab("edit")}>
             {ar ? "تعديل الصفحة" : "Edit page"}
           </button>
@@ -346,8 +354,8 @@ function SellerDesk() {
                   {ar ? "رقّي الخطة" : "Upgrade plan"}
                 </Link>
               )}
-              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => (planId === "free" ? void navigate({ to: "/sell" }) : setPayOpen(true))}>
-                {ar ? "جدّد الآن" : "Renew now"}
+              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => (planId === "free" || planId === "grow" ? void navigate({ to: "/sell" }) : setPayOpen(true))}>
+                {planId === "grow" ? (ar ? "اختر خطة للتجديد" : "Pick a plan to renew") : ar ? "جدّد الآن" : "Renew now"}
               </button>
               <Link to="/shop/$slug" params={{ slug: profileSlug }} className="inline-flex h-11 items-center rounded-md border border-line px-4 text-sm font-semibold">
                 {ar ? "شوف الملف" : "View profile"}
@@ -356,6 +364,17 @@ function SellerDesk() {
           </div>
           <UpgradeCode ar={ar} />
         </section>
+        <GuidedSetup
+          ar={ar}
+          show={phoneTab === "today"}
+          about={Boolean((account?.stallBio || "").trim())}
+          whatsapp={Boolean(user.whatsappPhone && /^\+9627\d{8}$/.test(user.whatsappPhone))}
+          hours={Boolean(account?.stallOpens && account?.stallCloses)}
+          item={mine.length > 0}
+          onAbout={() => { setPhoneTab("shop"); setEditPane("about"); chooseTab("edit"); }}
+          onHours={() => { setPhoneTab("shop"); setEditPane("hours"); chooseTab("edit"); }}
+          onItem={() => { setPhoneTab("items"); setEditPane("products"); chooseTab("edit"); }}
+        />
         {payOpen && planId !== "free" && (
           <PaymentDialog
             ar={ar}
@@ -390,6 +409,22 @@ function SellerDesk() {
 
         {tab === "edit" && (
           <section className="mt-4">
+            {phoneTab === "shop" && (
+              <div className="phone-shop-jumps mb-3 flex gap-1 overflow-x-auto" role="tablist">
+                {(
+                  [
+                    ["about", "About", "عن الدكان"],
+                    ["photo", "Photo", "الصورة"],
+                    ["hours", "Hours", "الساعات"],
+                    ["socials", "Socials", "التواصل"],
+                  ] as const
+                ).map(([id, en, arabic]) => (
+                  <button key={id} type="button" className={`h-10 shrink-0 rounded-lg px-3 text-sm font-semibold ${editPane === id ? "bg-ink text-cream" : "bg-sand"}`} onClick={() => setEditPane(id)}>
+                    {ar ? arabic : en}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="desk-tabs flex gap-1 overflow-x-auto rounded-xl bg-sand p-1" role="tablist">
               {(
                 [
@@ -550,7 +585,7 @@ function SellerDesk() {
                     setGroup={setGroupDraft}
                     setGroupAr={setGroupArDraft}
                   />
-                  {planId === "premium" && (
+                  {(planId === "premium" || planId === "grow") && (
                     <ChoiceFields
                       lang={lang}
                       choices={choices}
@@ -582,6 +617,28 @@ function SellerDesk() {
                         />
                       ))}
                     </div>
+                    {(planId === "premium" || planId === "grow") && (
+                      <label className="mt-3 block text-sm">
+                        {ar ? "فيديو" : "Video"}
+                        <input
+                          type="file"
+                          accept="video/mp4,video/webm"
+                          className="mt-1 block w-full text-sm"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 8_000_000) {
+                              setListError(ar ? "الفيديو أكبر من ٨ ميغا." : "Keep the video under 8 MB.");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => setVideo(typeof reader.result === "string" ? reader.result : null);
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        {video && <video className="mt-2 max-h-40 w-full rounded-md bg-ink" controls playsInline src={video} />}
+                      </label>
+                    )}
                   </div>
                   <label className="text-sm sm:col-span-2">
                     Description
@@ -797,8 +854,104 @@ function SellerDesk() {
         {tab === "promos" && (planId === "premium" || planId === "grow") && (
           <PromoBoard ar={ar} used={usedPromos} cap={planId === "premium" ? 4 : 1} daysLeft={daysLeftInMonth()} items={promotions} onAdd={addPromotion} />
         )}
+        <SellerPhoneBar
+          ar={ar}
+          tab={phoneTab}
+          marks={{ today: alerts.length, items: 0, shop: 0, more: inquiries.filter((order) => order.status !== "done").length }}
+          onPick={(id) => {
+            setPhoneTab(id);
+            setMoreOpen(id === "more");
+            if (id === "today") chooseTab("analytics");
+            if (id === "items") { setEditPane("products"); chooseTab("edit"); }
+            if (id === "shop") { setEditPane("about"); chooseTab("edit"); }
+          }}
+        />
+        {moreOpen && phoneTab === "more" && (
+          <div className="phone-more">
+            <button type="button" onClick={() => { setMoreOpen(false); chooseTab("analytics"); }}>{ar ? "الإحصاءات" : "Stats"}</button>
+            <button type="button" onClick={() => { setMoreOpen(false); if (planId === "premium" || planId === "grow") chooseTab("promos"); }}>{ar ? "العروض" : "Promotions"}</button>
+            {(planId !== "premium" && planId !== "grow") && <p className="phone-more-note">{ar ? "العروض تُفتح مع خطة أعلى." : "Promotions open on a higher plan."}</p>}
+            <Link to="/sell" onClick={() => setMoreOpen(false)}>{ar ? "خطتي والترقية" : "My plan & upgrade"}</Link>
+            <button type="button" onClick={() => { const url = `${window.location.origin}/shop/${profileSlug}`; void navigator.clipboard?.writeText(url); setMoreOpen(false); }}>{ar ? "رابط الدكان" : "Shop link & QR code"}</button>
+            <Link to="/rules" onClick={() => setMoreOpen(false)}>{ar ? "المساعدة والقواعد" : "Help & rules"}</Link>
+            <button type="button" onClick={() => { setMoreOpen(false); setPhoneTab("shop"); setEditPane("about"); chooseTab("edit"); }}>{ar ? "إعدادات الحساب" : "Account settings"}</button>
+            <button type="button" onClick={() => signOut()}>{ar ? "خروج" : "Log out"}</button>
+          </div>
+        )}
       </main>
     </Shell>
+  );
+}
+
+function GuidedSetup({
+  ar,
+  show,
+  about,
+  whatsapp,
+  hours,
+  item,
+  onAbout,
+  onHours,
+  onItem,
+}: {
+  ar: boolean;
+  show: boolean;
+  about: boolean;
+  whatsapp: boolean;
+  hours: boolean;
+  item: boolean;
+  onAbout: () => void;
+  onHours: () => void;
+  onItem: () => void;
+}) {
+  if (!show) return null;
+  const steps = [
+    { done: about && whatsapp, label: ar ? "عن الدكان وواتساب" : "About and WhatsApp", run: onAbout },
+    { done: hours, label: ar ? "ساعات الفتح" : "Opening hours", run: onHours },
+    { done: item, label: ar ? "أول صنف" : "First item", run: onItem },
+  ];
+  if (steps.every((step) => step.done)) return null;
+  return (
+    <section className="guided-setup">
+      <p>{ar ? "جهّز الدكان" : "Set up your shop"}</p>
+      <ol>
+        {steps.map((step) => (
+          <li key={step.label}>
+            <button type="button" onClick={step.run}>
+              <b>{step.done ? "✓" : "○"}</b>
+              {step.label}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function SellerPhoneBar({
+  ar,
+  tab,
+  onPick,
+}: {
+  ar: boolean;
+  tab: "today" | "items" | "shop" | "more";
+  marks: { today: number; items: number; shop: number; more: number };
+  onPick: (id: "today" | "items" | "shop" | "more") => void;
+}) {
+  const items = [
+    ["today", "Today", "اليوم"],
+    ["items", "Items", "الأصناف"],
+    ["shop", "My Shop", "دكاني"],
+    ["more", "More", "المزيد"],
+  ] as const;
+  return (
+    <nav className="seller-phone-bar" aria-label={ar ? "مكتب البائع" : "Seller desk"}>
+      {items.map(([id, en, arabic]) => (
+        <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => onPick(id)}>
+          <span>{ar ? arabic : en}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 

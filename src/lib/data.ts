@@ -3,14 +3,11 @@ import { EXTRA_SHOPS } from "./extra-stalls.ts";
 export type PlanId = "free" | "basic" | "grow" | "premium";
 export type CategoryId =
   | "food"
-  | "crafts"
-  | "plants"
-  | "vehicles"
-  | "homes"
-  | "beauty"
-  | "bazaar"
+  | "handicrafts"
+  | "jewelry"
+  | "farmers-market"
   | "misc"
-  | "pets"
+  | "beauty"
   | "clothes"
   | "all";
 
@@ -38,6 +35,7 @@ export type Product = {
   groupAr?: string;
   choices?: ItemChoice[];
   chart?: string;
+  video?: string;
   paused?: boolean;
   hideReason?: "unavailable" | "stock" | "sold";
   hideBack?: string;
@@ -59,6 +57,8 @@ export type Shop = {
   areaAr: string;
   category: CategoryId;
   categories?: CategoryId[];
+  /** Stored aisle is not a launch category. Skip buyer aisle filters; do not rewrite it. */
+  offAisle?: boolean;
   plan: PlanId;
   phone: string;
   avatar: string;
@@ -116,6 +116,7 @@ export const PLANS: Record<
     stampLabel: string;
     listings: number;
     images: number;
+    video: boolean;
     openClosed: boolean;
     views: boolean;
     reviews: boolean;
@@ -138,7 +139,8 @@ export const PLANS: Record<
     badge: "none",
     stampLabel: "",
     listings: 5,
-    images: 3,
+    images: 4,
+    video: false,
     openClosed: false,
     views: false,
     reviews: false,
@@ -148,8 +150,8 @@ export const PLANS: Record<
     invoice: false,
     photo: false,
     customTemplate: false,
-    blurb: "A shop with a duck. Five items. Inquiry on WhatsApp. No Open/Closed, no views, no stamp.",
-    blurbAr: "دكان مع البطة. خمسة أصناف. استفسار واتساب. بلا مفتوح/مغلق وبلا ختم.",
+    blurb: "A shop with a duck. Five items. One main photo and three extra. Inquiry on WhatsApp.",
+    blurbAr: "دكان مع البطة. خمسة أصناف. صورة رئيسية وثلاث إضافية. استفسار واتساب.",
   },
   basic: {
     id: "basic",
@@ -160,7 +162,8 @@ export const PLANS: Record<
     badge: "yellow",
     stampLabel: "Member",
     listings: 5,
-    images: 5,
+    images: 4,
+    video: false,
     openClosed: true,
     views: true,
     reviews: false,
@@ -170,8 +173,8 @@ export const PLANS: Record<
     invoice: false,
     photo: true,
     customTemplate: false,
-    blurb: "Your photo, yellow duck stamp, Open/Closed, view count. Still inquiry-only on WhatsApp.",
-    blurbAr: "صورتك، ختم البط الأصفر، مفتوح/مغلق، المشاهدات. الاستفسار على واتساب فقط.",
+    blurb: "Your photo, yellow duck stamp, Open/Closed. One main photo and three extra. Still inquiry-only on WhatsApp.",
+    blurbAr: "صورتك، ختم البط الأصفر، مفتوح/مغلق. صورة رئيسية وثلاث إضافية. الاستفسار على واتساب فقط.",
   },
   grow: {
     id: "grow",
@@ -182,7 +185,8 @@ export const PLANS: Record<
     badge: "green",
     stampLabel: "Established",
     listings: 30,
-    images: 6,
+    images: 4,
+    video: true,
     openClosed: true,
     views: true,
     reviews: true,
@@ -192,8 +196,8 @@ export const PLANS: Record<
     invoice: true,
     photo: true,
     customTemplate: false,
-    blurb: "Green stamp, 30 menu items, one main photo and 5 sub photos, reviews, and sections you name yourself.",
-    blurbAr: "ختم أخضر، 30 صنفاً، صورة رئيسية و٥ صور فرعية، تقييمات، وأقسام تسميها أنت.",
+    blurb: "Kept for sellers already on Grow. Same photos as every tier, plus a video, until they renew onto Premium.",
+    blurbAr: "للبائعين على نمو الآن. نفس الصور، مع فيديو، حتى يجدّدوا على مميّز.",
   },
   premium: {
     id: "premium",
@@ -204,7 +208,8 @@ export const PLANS: Record<
     badge: "blue",
     stampLabel: "Souq Pro",
     listings: 100,
-    images: 6,
+    images: 4,
+    video: true,
     openClosed: true,
     views: true,
     reviews: true,
@@ -214,10 +219,22 @@ export const PLANS: Record<
     invoice: true,
     photo: true,
     customTemplate: true,
-    blurb: "Navy crown, 100 items, one main photo and 5 sub photos, search on the shop, and sizes or colors you name yourself.",
-    blurbAr: "تاج كحلي، 100 صنف، صورة رئيسية و٥ صور فرعية، بحث في الدكان، ومقاسات أو ألوان تسميها أنت.",
+    blurb: "Navy crown, 100 items, one main photo and three extra, a video, search on the shop, and sizes or colors you name yourself.",
+    blurbAr: "تاج كحلي، 100 صنف، صورة رئيسية وثلاث إضافية، فيديو، بحث في الدكان، ومقاسات أو ألوان تسميها أنت.",
   },
 };
+
+export const SELLER_CATEGORY_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"] as const;
+export const LAUNCH_CATEGORY_IDS: CategoryId[] = [...SELLER_CATEGORY_IDS];
+export const OFFERED_PLANS: PlanId[] = ["free", "basic", "grow", "premium"];
+
+export function isSellerCategory(id: string): id is Exclude<CategoryId, "all"> {
+  return (SELLER_CATEGORY_IDS as readonly string[]).includes(id);
+}
+
+export function isCategoryId(id: string): id is CategoryId {
+  return isSellerCategory(id) || id === "all";
+}
 
 export const CATEGORIES: {
   id: CategoryId;
@@ -226,15 +243,12 @@ export const CATEGORIES: {
   icon: string;
 }[] = [
   { id: "food", en: "Food", ar: "طعام", icon: "/brand/icons/icon-food.jpg" },
-  { id: "crafts", en: "Crafts", ar: "حرف", icon: "/brand/icons/icon-crafts.jpg" },
-  { id: "plants", en: "Plants", ar: "نباتات", icon: "/brand/icons/icon-plants.jpg" },
-  { id: "vehicles", en: "Vehicles", ar: "مركبات", icon: "/brand/icons/icon-vehicles.jpg" },
-  { id: "homes", en: "Homes", ar: "منازل", icon: "/brand/icons/icon-homes.jpg" },
-  { id: "beauty", en: "Beauty", ar: "جمال", icon: "/brand/icons/icon-beauty.jpg" },
-  { id: "pets", en: "For Pets", ar: "للحيوانات", icon: "/brand/icons/icon-pets.jpg" },
-  { id: "clothes", en: "Clothes", ar: "ملابس", icon: "/brand/icons/icon-clothes.jpg" },
-  { id: "bazaar", en: "Bazaar", ar: "بازار", icon: "/brand/icons/icon-bazaar.jpg" },
+  { id: "handicrafts", en: "Handicrafts", ar: "حرف يدوية", icon: "/brand/icons/icon-handicrafts.jpg" },
+  { id: "jewelry", en: "Jewelry", ar: "مجوهرات", icon: "/brand/icons/icon-jewelry.jpg" },
+  { id: "farmers-market", en: "Farmers Market", ar: "سوق المزارعين", icon: "/brand/icons/icon-farmers-market.jpg" },
   { id: "misc", en: "Misc", ar: "متنوع", icon: "/brand/icons/icon-misc.jpg" },
+  { id: "beauty", en: "Beauty", ar: "جمال", icon: "/brand/icons/icon-beauty.jpg" },
+  { id: "clothes", en: "Clothes", ar: "ملابس", icon: "/brand/icons/icon-clothes.jpg" },
   { id: "all", en: "All", ar: "الكل", icon: "/brand/icons/icon-all.jpg" },
 ];
 
@@ -308,7 +322,7 @@ export const SHOPS: Shop[] = [
     nameAr: "خزف الكيميائي",
     area: "Weibdeh",
     areaAr: "الويبدة",
-    category: "crafts",
+    category: "handicrafts",
     plan: "basic",
     phone: "",
     avatar: "/brand/shops/clay-studio.jpg",
@@ -531,7 +545,7 @@ export const SHOPS: Shop[] = [
     nameAr: "وايلدروت",
     area: "Khalda",
     areaAr: "خلدا",
-    category: "plants",
+    category: "farmers-market",
     plan: "basic",
     phone: "",
     avatar: "/brand/shops/plants.jpg",
@@ -580,7 +594,7 @@ export const SHOPS: Shop[] = [
     nameAr: "ستريت ويلز",
     area: "Marka",
     areaAr: "ماركا",
-    category: "vehicles",
+    category: "misc",
     plan: "grow",
     phone: "",
     avatar: "/brand/shops/camry.jpg",
@@ -615,7 +629,7 @@ export const SHOPS: Shop[] = [
     nameAr: "الواحة الخضراء",
     area: "Dabouq",
     areaAr: "دابوق",
-    category: "plants",
+    category: "farmers-market",
     plan: "premium",
     phone: "",
     avatar: "/brand/shops/bonsai.jpg",
@@ -694,14 +708,13 @@ export const SHOPS: Shop[] = [
     nameAr: "صلصال عمّان",
     area: "Downtown",
     areaAr: "وسط البلد",
-    category: "crafts",
+    category: "handicrafts",
     plan: "basic",
     phone: "",
     avatar: "/brand/shops/clay-studio.jpg",
     since: "Jul 2026",
     km: 1.4,
     mode: "inquire",
-    isOpen: true,
     views: 0,
     products: [
       { id: "clay-cup", name: "Coffee cup", nameAr: "فنجان قهوة", price: 8, desc: "Wheel-thrown.", descAr: "على الدولاب.", images: ["/brand/shops/mug.jpg"] },
@@ -736,7 +749,7 @@ export const SHOPS: Shop[] = [
     nameAr: "جلد الكف",
     area: "Khalda",
     areaAr: "خلدا",
-    category: "pets",
+    category: "misc",
     plan: "free",
     phone: "",
     avatar: duck,

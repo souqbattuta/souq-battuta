@@ -38,11 +38,11 @@ function CategoryPage() {
   useEffect(() => {
     ensureDirectory();
   }, [ensureDirectory]);
-  const cat = CATEGORIES.find((item) => item.id === id) ?? CATEGORIES.find((item) => item.id === "all")!;
+  const cat = CATEGORIES.find((item) => item.id === id);
   const catalog = useMemo(() => directoryShops(accounts), [accounts, serverShops]);
   const shops = useMemo(
-    () => catalog.filter((shop) => cat.id === "all" || shop.category === (cat.id as CategoryId)),
-    [catalog, cat.id],
+    () => (cat ? catalog.filter((shop) => !shop.offAisle && (cat.id === "all" || shop.category === cat.id || (shop.categories ?? []).includes(cat.id as CategoryId))) : []),
+    [catalog, cat],
   );
   const orderScore = (shop: Shop) => (shop.waOrders ?? 0) + (waTaps[shop.slug] ?? 0);
   const tieSeed = useTieSeed();
@@ -59,6 +59,16 @@ function CategoryPage() {
     () => shops.filter((shop) => orderScore(shop) > 0).sort((a, b) => orderScore(b) - orderScore(a)),
     [shops, waTaps],
   );
+  if (!cat) {
+    return (
+      <Shell>
+        <main className="px-5 py-16">
+          <h1 className="font-display text-3xl">{ar ? "هذا القسم غير مفتوح" : "This aisle is not open"}</h1>
+          <Link to="/home" className="mt-4 inline-block font-semibold underline">{ar ? "الرئيسية" : "Home"}</Link>
+        </main>
+      </Shell>
+    );
+  }
   const name = ar ? cat.ar : cat.en;
   const other = ar ? cat.en : cat.ar;
   const more = { aisle: cat.id };
@@ -77,7 +87,9 @@ function CategoryPage() {
               </div>
             </div>
           </div>
-          <CategoryRail ar={ar} active={cat.id} />
+          <div className="home-cats-wrap">
+            <CategoryRail ar={ar} active={cat.id} />
+          </div>
         </section>
 
         <HelloStrip shops={shops} />

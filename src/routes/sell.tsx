@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, type PlanId } from "@/lib/data";
+import { OFFERED_PLANS, PLANS, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
@@ -58,8 +58,8 @@ function SellPage() {
         <p className="mt-2 max-w-2xl text-mute">
           WhatsApp stays yours. No in-app payment. Free is three months once per phone. After that, the same number cannot use Free again.
         </p>
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {(Object.keys(PLANS) as PlanId[]).map((id) => {
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {OFFERED_PLANS.map((id) => {
             const p = PLANS[id];
             return (
               <article key={id} className="flex flex-col rounded-xl border border-line bg-cream p-5">
@@ -72,7 +72,8 @@ function SellPage() {
                 <p className="text-xs font-semibold text-ink">{ar ? { free: "ظهور عادي", basic: "ظهور أقوى", grow: "أولوية", premium: "الأولوية الأولى" }[id] : VISIBILITY[id]}</p>
                 <p className="mt-3 flex-1 text-sm">{lang === "ar" ? p.blurbAr : p.blurb}</p>
                 <ul className="mt-3 space-y-1 text-xs text-mute">
-                  <li>{p.listings} listings · {p.images} photos each</li>
+                  <li>{p.listings} listings · 1 main photo + 3 extra</li>
+                  {p.video && <li>{ar ? "فيديو" : "Video"}</li>}
                   <li>{p.openClosed ? "Open/Closed" : "No Open/Closed"}</li>
                   <li>{p.views ? "Profile views" : "No views"}</li>
                   <li>{p.reviews ? "Reviews" : "No reviews"}</li>

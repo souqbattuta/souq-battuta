@@ -2,13 +2,13 @@ import { useLayoutEffect, useState } from "react";
 import { CATEGORIES, type Shop } from "./data.ts";
 
 const CATEGORY_WORDS: Record<string, [string, string]> = {
-  food: ["food", "أكل"],
-  crafts: ["crafts", "حرف"],
-  plants: ["plants", "نباتات"],
-  beauty: ["beauty", "تجميل"],
-  pets: ["pets", "حيوانات"],
-  clothes: ["clothes", "أواعي"],
-  misc: ["misc", "منوع"],
+  food: ["food", "طعام"],
+  handicrafts: ["handicrafts", "حرف يدوية"],
+  jewelry: ["jewelry", "مجوهرات"],
+  "farmers-market": ["farmers market", "سوق المزارعين"],
+  beauty: ["beauty", "جمال"],
+  clothes: ["clothes", "ملابس"],
+  misc: ["misc", "متنوع"],
 };
 
 /** Category labels that start a shop's keywords. They do not use a paid slot. */
@@ -115,9 +115,8 @@ export function isDemoShop(shop: { demo?: boolean }) {
   return shop.demo === true;
 }
 
-/** Production buyer catalogs drop demo shops. Hidden is a separate moderation flag. */
-export function buyerVisibleShops<T extends { demo?: boolean }>(shops: T[], production: boolean) {
-  if (!production) return shops;
+/** Production and preview both drop demo shops. Old aisle ids are skipped by the caller, not rewritten. */
+export function buyerVisibleShops<T extends { demo?: boolean; offAisle?: boolean }>(shops: T[], _production: boolean) {
   return shops.filter((shop) => !isDemoShop(shop));
 }
 

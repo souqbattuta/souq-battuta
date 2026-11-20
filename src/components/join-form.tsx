@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { CATEGORIES, type CategoryId } from "@/lib/data";
+import { CATEGORIES, LAUNCH_CATEGORY_IDS, isSellerCategory, type CategoryId } from "@/lib/data";
 import { isValidArabPhone, isValidSellerUsername, isValidUsername, normalizePhone, usernameTaken, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
 import { stageSouqSignup } from "@/lib/souq-sync";
@@ -32,7 +32,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     const saved = readSellerDraft();
     if (saved) {
       setDraft(saved);
-      setCategories(saved.categories);
+      setCategories((saved.categories ?? []).filter((id) => LAUNCH_CATEGORY_IDS.includes(id)).slice(0, 2));
       if (typeof saved.areaLat === "number" && typeof saved.areaLng === "number") setPin({ lat: saved.areaLat, lng: saved.areaLng });
     }
     setReady(true);
@@ -85,7 +85,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
             city,
             address,
             intent: "seller",
-            categories,
+            categories: categories.filter(isSellerCategory),
             areaLat: pin?.lat,
             areaLng: pin?.lng,
           },
@@ -150,9 +150,9 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
       {intent === "buyer" && <Field name="referral" label={t.referral} placeholder="NAMOS" />}
       {intent === "seller" && (
         <>
-          <p className="text-sm font-semibold">{ar ? "الأقسام" : "Aisles"} *</p>
+          <p className="text-sm font-semibold">{ar ? "الأقسام — اثنان كحد أقصى" : "Aisles — two at most"} *</p>
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.filter((category) => category.id !== "all").map((category) => {
+            {CATEGORIES.filter((category) => LAUNCH_CATEGORY_IDS.includes(category.id)).map((category) => {
               const on = categories.includes(category.id);
               return (
                 <button

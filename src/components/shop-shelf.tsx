@@ -80,7 +80,7 @@ function useReturnPeek(id: string, shops: Shop[]) {
   return { index, remember, savedScroll };
 }
 
-const CAT_IDS = ["food", "crafts", "plants", "beauty", "pets", "clothes", "misc", "all"] as const;
+const CAT_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes", "all"] as const;
 
 export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -767,7 +767,7 @@ export function StallPeek({
             <span className="stall-card-rating">
               <DuckRating score={rating} size={18} />
               <em>{rating}</em>
-              <span className={ar ? "font-arabic" : undefined}>{count} {ar ? "تقييم" : count === 1 ? "review" : "reviews"}</span>
+              <span className={ar ? "font-arabic" : undefined}>{count > 0 ? `${count} ${ar ? "تقييم" : count === 1 ? "review" : "reviews"}` : ""}</span>
             </span>
           )}
           {(shop.likes ?? 0) > 0 && (

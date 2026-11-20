@@ -219,9 +219,8 @@ function billingPhase(account: any) {
 }
 let remoteShops: Shop[] = [];
 
-function asCategory(id: string): CategoryId {
-  const known = ["food", "crafts", "plants", "vehicles", "homes", "beauty", "bazaar", "misc", "pets", "clothes", "all"];
-  return (known.includes(id) ? id : "misc") as CategoryId;
+function asCategory(id: string): CategoryId | null {
+  return id === "food" || id === "handicrafts" || id === "jewelry" || id === "farmers-market" || id === "misc" || id === "beauty" || id === "clothes" || id === "all" ? id : null;
 }
 
 function asPlan(id: string): PlanId {
@@ -252,7 +251,8 @@ function shopFromPublic(row: {
   createdAt: number;
   products: { id: string; name: string; price: number; image: string; full: string; images?: string[] }[];
 }): Shop {
-  const category = asCategory(row.category);
+  const parsed = asCategory(row.category);
+  const category = parsed && parsed !== "all" ? parsed : "misc";
   return {
     slug: row.slug,
     name: row.name,
@@ -260,6 +260,7 @@ function shopFromPublic(row: {
     area: row.area || "Amman",
     areaAr: row.area || "عمّان",
     category,
+    offAisle: !parsed || parsed === "all",
     plan: asPlan(row.plan),
     phone: sellerWhatsapp({ whatsappPhone: row.phone }),
     avatar: row.avatar,
@@ -268,7 +269,7 @@ function shopFromPublic(row: {
     bioAr: row.bioAr || row.bio,
     hours: stallHoursLabel(row),
     isOpen: stallIsOpen(row),
-    keywords: [...new Set([...builtInKeywords([category]), ...row.keywords])],
+    keywords: [...new Set([...builtInKeywords(parsed && parsed !== "all" ? [parsed] : []), ...row.keywords])],
     products: row.products.map((item) => ({
       id: item.id,
       name: item.name,
@@ -298,7 +299,9 @@ function directoryShops(accounts: any): Shop[] {
     const reviews = account.stallReviews ?? [];
     const rating = reviews.length ? Math.round(reviews.reduce((sum: any, review: any) => sum + review.score, 0) / reviews.length * 10) / 10 : void 0;
     const blob = products.map((product: any) => `${product.name} ${product.desc}`).join(" ").toLowerCase();
-    const category = account.categories?.[0] ?? (/knafeh|maqluba|manakish|kaak|food|bread/.test(blob) ? "food" : "misc");
+    const stored = (account.categories ?? []).map((id: string) => asCategory(id)).filter((id: CategoryId | null): id is CategoryId => Boolean(id) && id !== "all");
+    const inferred = /knafeh|maqluba|manakish|kaak|food|bread/.test(blob) ? "food" : null;
+    const category = stored[0] ?? inferred;
     const joined = account.joinedAt ? new Date(account.joinedAt) : null;
     extras.push({
       slug,
@@ -306,8 +309,9 @@ function directoryShops(accounts: any): Shop[] {
       nameAr: account.shopName || account.displayName || account.username,
       area: account.city || "Amman",
       areaAr: account.city === "Amman" || !account.city ? "\u0639\u0645\u0651\u0627\u0646" : account.city,
-      category,
-      categories: (account.categories?.length ? account.categories : [category]).slice(0, 2),
+      category: category ?? "misc",
+      offAisle: !category,
+      categories: stored.slice(0, 2),
       plan: account.sellerPlan ?? "free",
       phone: sellerWhatsapp(account),
       avatar: (account.sellerPlan ?? "free") === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || products[0]?.images[0] || "/brand/avatars/seller-duck.jpg?v=2",
@@ -410,6 +414,35 @@ function stallHoursLabel(stall: any) {
   const days = (stall.stallDays || "").split(",").filter(Boolean);
   const names = days.map((day: any) => day.slice(0, 1).toUpperCase() + day.slice(1, 3)).join(" ");
   return `${names ? `${names} \xB7 ` : ""}${stall.stallOpens}\u2013${stall.stallCloses}`;
+}
+
+const WEEKDAY: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+/** Catalog hours follow the Amman clock. No hours means no Open/Closed badge. */
+function displayOpen(shop: { hours?: string; isOpen?: boolean | null }, now = new Date()): boolean | null {
+  const hours = (shop.hours ?? "").trim();
+  if (!hours) return null;
+  const time = hours.match(/(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/);
+  if (!time) return shop.isOpen ?? null;
+  const openMin = Number(time[1]) * 60 + Number(time[2]);
+  const closeMin = Number(time[3]) * 60 + Number(time[4]);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Amman", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((part) => [part.type, part.value]),
+  );
+  const day = WEEKDAY[(parts.weekday ?? "Sat").slice(0, 3).toLowerCase()];
+  const clock = Number(parts.hour) * 60 + Number(parts.minute);
+  const inside = closeMin === openMin ? true : closeMin > openMin ? clock >= openMin && clock < closeMin : clock >= openMin || clock < closeMin;
+  if (/^(daily|every day)\b/i.test(hours)) return inside;
+  const range = hours.match(/^(sun|mon|tue|wed|thu|fri|sat)\s*[–-]\s*(sun|mon|tue|wed|thu|fri|sat)/i);
+  if (range) {
+    const start = WEEKDAY[range[1].toLowerCase().slice(0, 3)];
+    const end = WEEKDAY[range[2].toLowerCase().slice(0, 3)];
+    const inDays = start <= end ? day >= start && day <= end : day >= start || day <= end;
+    return inDays ? inside : false;
+  }
+  const listed = [...hours.split(/[·•|]/)[0].matchAll(/\b(sun|mon|tue|wed|thu|fri|sat|friday|saturday|sunday|monday|tuesday|wednesday|thursday)\b/gi)].map((hit) => WEEKDAY[hit[1].slice(0, 3).toLowerCase()]);
+  if (listed.length) return listed.includes(day) ? inside : false;
+  return shop.isOpen ?? null;
 }
 function isValidUsername(name: any) {
   return /^[\p{L}\p{N}.]{4,24}$/u.test(name.trim());
@@ -1209,7 +1242,7 @@ const useSession = create<any>()(
         const plan = PLANS[(user.sellerPlan ?? "free") as keyof typeof PLANS];
         const mine = (get().listings ?? []).filter((item: any) => item.shopSlug === user.shopSlug);
         if (mine.length >= plan.listings) return { ok: false, error: "limit" };
-        const cap = user.sellerPlan === "grow" || user.sellerPlan === "premium" ? 6 : plan.images;
+        const cap = PLANS[(user.sellerPlan ?? "free") as keyof typeof PLANS].images;
         const images = listing.images.filter(Boolean).slice(0, cap);
         const stored = await storedImages(images);
         if (!stored.ok) return { ok: false, error: stored.error };
@@ -1223,6 +1256,7 @@ const useSession = create<any>()(
           desc: listing.desc.trim(),
           descAr: listing.descAr.trim() || listing.desc.trim(),
           images: stored.urls.length ? stored.urls : ["/brand/avatars/default-duck.jpg"],
+          video: listing.video || void 0,
           group: listing.group?.trim() || void 0,
           groupAr: listing.groupAr?.trim() || void 0,
           choices: user.sellerPlan === "premium" ? cleanChoices(listing.choices) : void 0,
@@ -1236,7 +1270,7 @@ const useSession = create<any>()(
             imageUrl: stored.urls[0],
             thumbUrl: stored.thumbs[0],
             images: stored.urls,
-            body: { nameAr, desc: next.desc, descAr: next.descAr, images: stored.urls },
+            body: { nameAr, desc: next.desc, descAr: next.descAr, images: stored.urls, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
           },
         });
         if (!saved.ok) return saved;
@@ -1249,7 +1283,7 @@ const useSession = create<any>()(
         const name = listing.name.trim();
         if (name.length < 2) return { ok: false, error: "name" };
         const planId = user.sellerPlan ?? "free";
-        const cap = planId === "grow" || planId === "premium" ? 6 : PLANS[planId as keyof typeof PLANS].images;
+        const cap = PLANS[planId as keyof typeof PLANS].images;
         const images = listing.images.filter(Boolean).slice(0, cap);
         const stored = await storedImages(images);
         if (!stored.ok) return { ok: false, error: stored.error };
@@ -1262,7 +1296,7 @@ const useSession = create<any>()(
             imageUrl: nextImages[0],
             thumbUrl: stored.thumbs[0] || nextImages[0],
             images: nextImages,
-            body: { nameAr: listing.nameAr.trim() || name, desc: listing.desc.trim(), descAr: listing.descAr.trim() || listing.desc.trim(), images: nextImages },
+            body: { nameAr: listing.nameAr.trim() || name, desc: listing.desc.trim(), descAr: listing.descAr.trim() || listing.desc.trim(), images: nextImages, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
           },
         });
         if (!saved.ok) return saved;
@@ -1276,6 +1310,7 @@ const useSession = create<any>()(
             desc: listing.desc.trim(),
             descAr: listing.descAr.trim() || listing.desc.trim(),
             images: nextImages.length ? nextImages : item.images,
+            video: listing.video || void 0,
             group: listing.group?.trim() || void 0,
             groupAr: listing.groupAr?.trim() || listing.group?.trim() || void 0,
             choices: user.sellerPlan === "premium" ? cleanChoices(listing.choices) : void 0,
@@ -2134,6 +2169,7 @@ export {
   socialVerifyCode,
   stallHoursLabel,
   stallIsOpen,
+  displayOpen,
   stallNameTaken,
   useSession,
   usernameTaken

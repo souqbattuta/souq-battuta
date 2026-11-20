@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, deliveryAmount, formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
-import { slugForSeller, useSession } from "@/lib/session";
+import { CATEGORIES, PLANS, deliveryAmount, formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
+import { displayOpen, slugForSeller, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
 import { Crown } from "@/components/plan-stamp";
 import { FramedImage } from "@/components/photo-frame";
@@ -11,6 +11,8 @@ import { AddressDialog } from "@/components/location-picker";
 import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
+import { helloLive, type HelloPost } from "@/lib/hello";
+import { shopTopItems } from "@/lib/souq-sync";
 import { photoControlName } from "@/lib/photo-label";
 import { sectionsWithMatches } from "@/lib/shop-search";
 
@@ -251,8 +253,8 @@ function SectionTabs({
   const named = groups.filter((group) => group.title && group.title !== "Menu");
   if (named.length === 0) return null;
   return (
-    <div className="shop-section-tabs mt-4 flex gap-1 overflow-x-auto" role="tablist">
-      <button type="button" role="tab" aria-selected={!active} className={cn("h-10 shrink-0 rounded-lg px-4 text-sm font-semibold", !active ? "bg-ink text-cream" : "bg-cream text-ink")} onClick={() => onPick("")}>
+    <div className="shop-section-tabs" role="tablist">
+      <button type="button" role="tab" aria-selected={!active} className={cn(!active && "is-on")} onClick={() => onPick("")}>
         {lang === "ar" ? "الكل" : "ALL"}
       </button>
       {named.map((group) => (
@@ -261,7 +263,7 @@ function SectionTabs({
           type="button"
           role="tab"
           aria-selected={active === group.key}
-          className={cn("h-10 shrink-0 rounded-lg px-4 text-sm font-semibold tracking-wide", active === group.key ? "bg-ink text-cream" : "bg-cream text-ink")}
+          className={cn(active === group.key && "is-on")}
           onClick={() => onPick(group.key)}
         >
           {lang === "ar" ? group.titleAr || group.title : group.title.toLocaleUpperCase()}
@@ -314,7 +316,8 @@ function picksReady(product: Product, picks: number[]) {
 }
 
 function StallNote({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
-  const note = shop.isOpen === false
+  const open = displayOpen(shop);
+  const note = open === false
     ? lang === "ar" ? shop.closedNoteAr || shop.closedNote : shop.closedNote || shop.closedNoteAr
     : lang === "ar" ? shop.openNoteAr || shop.openNote : shop.openNote || shop.openNoteAr;
   if (!note) return null;
@@ -323,18 +326,19 @@ function StallNote({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
 
 function HoursStatus({ shop, lang }: { shop: Shop; lang: "en" | "ar" }) {
   const t = copy[lang];
-  if (shop.isOpen == null && !shop.hours) return <StallNote shop={shop} lang={lang} />;
+  const open = displayOpen(shop);
+  if (open == null && !shop.hours) return <StallNote shop={shop} lang={lang} />;
   return (
     <>
-      {shop.isOpen == null ? (
+      {open == null ? (
         <p className="mt-2 text-sm text-mute">{shop.hours}</p>
       ) : (
-        <p className={cn("mt-2 text-sm font-semibold", shop.isOpen ? "text-stamp-green" : "text-mute")}>
-          {shop.isOpen ? `● ${t.open}` : `● ${t.closed}`}
+        <p className={cn("mt-2 text-sm font-semibold", open ? "text-stamp-green" : "text-mute")}>
+          {open ? `● ${t.open}` : `● ${t.closed}`}
           {shop.hours ? ` · ${shop.hours}` : ""}
         </p>
       )}
-      {shop.isOpen === false && shop.contactWhenClosed !== false && !shop.closedNote && !shop.closedNoteAr && (
+      {open === false && shop.contactWhenClosed !== false && !shop.closedNote && !shop.closedNoteAr && (
         <p className="mt-1 text-xs text-mute">{lang === "ar" ? "مغلق، والتواصل مفتوح." : "Closed, and you can still message them."}</p>
       )}
       <StallNote shop={shop} lang={lang} />
@@ -620,13 +624,265 @@ function Gallery({
 }
 
 export function ShopView({ shop }: { shop: Shop }) {
-  const pet = shop.category === "pets" || (shop.categories ?? []).includes("pets");
-  const page = shop.plan === "free" ? <FreeShop shop={shop} /> : shop.plan === "basic" ? <BasicShop shop={shop} /> : shop.plan === "grow" || shop.plan === "premium" ? <GrowShop shop={shop} /> : <PremiumShop shop={shop} />;
   return (
     <div className="shop-view">
-      {pet && <PetRuleLine />}
-      {page}
+      <PublicStall shop={shop} />
     </div>
+  );
+}
+
+function PublicStall({ shop }: { shop: Shop }) {
+  const ui = useShopChrome(shop);
+  const { t, name, area } = ui;
+  const ar = ui.lang === "ar";
+  const user = useSession((s) => s.user);
+  const accounts = useSession((s) => s.accounts);
+  const follows = useSession((s) => s.follows) ?? [];
+  const toggleFollow = useSession((s) => s.toggleFollow);
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<"menu" | "inquire" | "reviews" | "hello" | "top">("menu");
+  const [sectionKey, setSectionKey] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [tops, setTops] = useState<{ id: string; name: string; score: number }[]>([]);
+  const [videoOn, setVideoOn] = useState(false);
+  const open = displayOpen(shop);
+  const following = follows.includes(shop.slug);
+  const followerCount = (shop.followers ?? 0) + Object.values(accounts).filter((account) => account.role !== "seller" && (account.follows ?? []).includes(shop.slug)).length;
+  const reviewCount = shop.reviewCount ?? shop.reviews?.length ?? 0;
+  const views = shop.views ?? 0;
+  const cat = CATEGORIES.find((item) => item.id === shop.category);
+  const catLabel = shop.offAisle || !cat || cat.id === "all" ? "" : ar ? cat.ar : cat.en;
+  const posts = Object.values(accounts as Record<string, { helloPosts?: HelloPost[]; role?: string; follows?: string[] }>).flatMap((account) => account.helloPosts ?? []).filter((post) => post.shopSlug === shop.slug && helloLive(post));
+  const video = shop.plan === "premium" ? (shop as Shop & { profileVideo?: string }).profileVideo : undefined;
+  const sections = useMemo(() => menuGroups(shop.products).filter((group) => group.items.length > 0), [shop.products]);
+  const shown = sectionKey ? sections.filter((group) => group.key === sectionKey) : sections;
+  const visible = shop.products.filter((product) => !product.paused && !product.hideReason);
+  const topProduct = visible.find((product) => product.id === tops[0]?.id) ?? visible[0];
+  const helloPost = posts[0];
+  const newest = shop.reviews?.[shop.reviews.length - 1];
+  const mode = shop.plan === "premium" || shop.plan === "grow" ? "invoice" : "inquire";
+  const askQty = Boolean(shop.askQty);
+  const lines = shop.products
+    .map((product) => ({ product, qty: askQty ? counts[product.id] ?? 0 : picked.includes(product.id) ? 1 : 0 }))
+    .filter((line) => line.qty > 0);
+  useEffect(() => {
+    let stop = false;
+    void shopTopItems({ data: { slug: shop.slug } }).then((res) => {
+      if (!stop && res.ok) setTops(res.items);
+    }).catch(() => undefined);
+    return () => {
+      stop = true;
+    };
+  }, [shop.slug]);
+
+  function guard(run: () => void) {
+    if (!user) {
+      void navigate({ to: "/sign-in", search: { next: `/shop/${shop.slug}` } });
+      return;
+    }
+    if (user.role === "seller" && !ui.own) return;
+    run();
+  }
+
+  return (
+    <>
+      <div className="stall-cover">
+        {shop.cover ? (
+          <button type="button" className="stall-cover-photo" onClick={() => ui.setShot({ src: shop.cover, title: name, text: ar ? shop.bioAr : shop.bio, label: name })}>
+            <FramedImage src={shop.cover} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
+          </button>
+        ) : (
+          <div className="stall-cover-empty" aria-hidden="true" />
+        )}
+        <div className="stall-cover-bar">
+          <Link to="/home" className="stall-back" aria-label={ar ? "رجوع" : "Back"}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </Link>
+          <Link to="/home" className="stall-cover-brand">
+            <img src="/brand/duck-mark.png" alt="" />
+            <span>Souq Battuta</span>
+          </Link>
+          <div className="stall-cover-tools">
+            <ShareStall title={name} slug={shop.slug} label={t.share} copiedLabel={t.copied} />
+            {!ui.own && !ui.seller && <BookmarkMenu shop={shop} bookmarked={ui.bookmarked} />}
+          </div>
+        </div>
+        <div className="stall-motif" aria-hidden="true" />
+        <button type="button" className="stall-logo" onClick={() => ui.setShot({ src: shop.avatar, title: name, label: name })}>
+          <FramedImage src={shop.avatar || "/brand/avatars/default-duck.jpg"} frameId={`avatar:${shop.slug}`} alt="" className="stall-logo-photo" />
+        </button>
+      </div>
+      <main className="stall-sheet">
+        <p className="stall-kicker">{[catLabel, area].filter(Boolean).join(" · ")}</p>
+        <h1 id="shop-name" className="stall-sign">
+          {name}
+          <Crown plan={shop.plan} className="plan-badge profile-badge" />
+        </h1>
+        {shop.nameAr && shop.nameAr !== name && <p className="stall-sign-ar" dir="rtl" lang="ar">{shop.nameAr}</p>}
+        <div className="stall-rule" aria-hidden="true"><i /><b /><i /></div>
+        {open != null && (
+          <p className="stall-hours">
+            <b className={open ? "is-open" : "is-closed"}>{open ? (ar ? "● مفتوح" : "● OPEN") : ar ? "● مغلق" : "● CLOSED"}</b>
+            {shop.hours && <><span>|</span>{shop.hours}</>}
+          </p>
+        )}
+        {(reviewCount > 0 || followerCount > 0 || views > 0) && (
+          <div className="stall-counts">
+            {reviewCount > 0 && <div><b>{reviewCount}</b><span>{t.reviews}</span></div>}
+            {followerCount > 0 && <div><b>{followerCount}</b><span>{t.followers}</span></div>}
+            {views > 0 && <div><b>{views.toLocaleString()}</b><span>{t.views}</span></div>}
+          </div>
+        )}
+        {(shop.bio || shop.bioAr) && <p className="stall-about">“{ar ? shop.bioAr || shop.bio : shop.bio}”</p>}
+        {!ui.seller && (
+          <button type="button" className={cn("stall-follow", following && "is-on")} onClick={() => guard(() => toggleFollow(shop.slug))}>
+            {following ? t.following : t.follow}
+          </button>
+        )}
+        <div className="stall-circles">
+          <button type="button" className={posts.length ? "is-live" : ""} onClick={() => setTab("hello")}>
+            <i>{helloPost?.image && posts.length > 0 ? <img src={helloPost.image} alt="" /> : <img src="/brand/hello-motif-a-inactive.svg" alt="" />}</i>
+            <span>Hello, World!</span>
+          </button>
+          <button type="button" onClick={() => setTab("reviews")}>
+            <i><img src="/brand/duck-mark.png" alt="" /></i>
+            <span>{t.reviews}</span>
+          </button>
+          {video && (
+            <button type="button" className="is-video" onClick={() => setVideoOn(true)}>
+              <i><span className="stall-play" /></i>
+              <span>{ar ? "فيديو" : "Video"}</span>
+            </button>
+          )}
+          {visible.length > 0 && (
+            <button type="button" onClick={() => setTab("top")}>
+              <i>{topProduct?.images[0] && <img src={topProduct.images[0]} alt="" />}<b className="stall-star" aria-hidden="true">★</b></i>
+              <span>{ar ? "الأبرز" : "Top items"}</span>
+            </button>
+          )}
+        </div>
+        {tab === "hello" && posts.length === 0 && <p className="stall-note">{ar ? "ما في منشور اليوم." : "No post today."}</p>}
+        {tab === "hello" && (
+          <ul className="stall-hello">
+            {posts.map((post) => (
+              <li key={post.id}>
+                {post.image && <OptImg src={post.image} alt="" />}
+                <p>{post.text}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {tab === "reviews" && (
+          <section id="shop-reviews">
+            <ReviewList shop={shop} />
+          </section>
+        )}
+        {tab === "top" && (
+          <ul className="stall-tops">
+            {tops.map((item) => (
+              <li key={item.id}><b>{item.name}</b><span>{item.score}</span></li>
+            ))}
+          </ul>
+        )}
+        {open === false && shop.contactWhenClosed === false && !ui.own && (
+          <p className="mb-3 rounded-lg border border-line bg-sand px-4 py-3 text-sm text-mute">{ar ? "مغلق الآن، والتواصل مقفل لين يفتح." : "Closed now. Contact is off until they open."}</p>
+        )}
+        <div className="stall-tabs" role="tablist">
+          <button type="button" className={tab === "menu" || tab === "reviews" || tab === "hello" || tab === "top" ? "is-on" : ""} onClick={() => setTab("menu")}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
+            {t.menu}
+          </button>
+          <button type="button" className={tab === "inquire" ? "is-on" : ""} onClick={() => setTab("inquire")}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+            {t.orderInquireNow}
+          </button>
+        </div>
+        <SectionTabs groups={sections} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
+        {tab !== "inquire" ? (
+          <div className="stall-grid">
+            {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
+            {shown.flatMap((group) => group.items).map((product) => (
+              <button key={product.id} type="button" className="stall-item" onClick={() => ui.setShot({ images: product.images, index: 0, title: ar ? product.nameAr : product.name, text: `${priceLabel(product, ui.lang)}\n${ar ? product.descAr : product.desc}`, label: ar ? product.nameAr : product.name })}>
+                <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" />
+                <b>{priceLabel(product, ui.lang)}</b>
+                {product.images.length > 1 && (
+                  <span className="stall-more-photos" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><rect x="7" y="7" width="12" height="12" rx="2" /><rect x="4" y="4" width="12" height="12" rx="2" /></svg>
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {shown.flatMap((group) => group.items).map((product) => {
+              const on = askQty ? (counts[product.id] ?? 0) > 0 : picked.includes(product.id);
+              return (
+                <button key={product.id} type="button" className={cn("flex w-full items-center gap-3 rounded-xl border p-3 text-start", on ? "border-ink bg-sand" : "border-line bg-cream")} onClick={() => {
+                  if (askQty) setCounts((c) => ({ ...c, [product.id]: (c[product.id] ?? 0) > 0 ? 0 : 1 }));
+                  else setPicked((ids) => (on ? ids.filter((id) => id !== product.id) : [...ids, product.id]));
+                }}>
+                  <OptImg src={product.images[0]} alt="" className="size-14 rounded-md object-cover" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold">{ar ? product.nameAr : product.name}</span>
+                    <span className="text-sm">{priceLabel(product, ui.lang)}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={shop.plan === "premium" || shop.plan === "grow" ? "invoice" : "inquire"} />}
+          </div>
+        )}
+        <section className="stall-reviews">
+          <h2>{t.reviews}</h2>
+          {reviewCount > 0 ? (
+            <>
+              <div className="stall-reviews-meta">
+                <DuckRating score={shop.rating ?? 0} />
+                <span>{shop.rating ?? "–"} · {reviewCount}</span>
+              </div>
+              {newest && <p className="stall-reviews-quote">“{newest.comment}”</p>}
+              {newest && (
+                <div className="stall-reviews-by">
+                  <img src="/brand/avatars/buyer-duck.jpg" alt="" />
+                  <span>{newest.user}</span>
+                  <button type="button" onClick={() => setTab("reviews")}>{ar ? "اقرأ التقييمات" : "Read reviews"}</button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="stall-note">{ar ? "لا تقييمات بعد." : "No reviews yet"}</p>
+          )}
+          {tab === "reviews" && <ReviewList shop={shop} />}
+        </section>
+        <div className="stall-actions">
+          <ShareStall title={name} slug={shop.slug} label={t.share} copiedLabel={t.copied} />
+          {!ui.own && !ui.seller && <BookmarkMenu shop={shop} bookmarked={ui.bookmarked} />}
+          <button type="button" onClick={() => ui.setReportOn(true)}>{t.report}</button>
+        </div>
+        {(open !== false || shop.contactWhenClosed !== false) && shop.products[0] && (
+          <div className="stall-order-bar">
+            {tab === "inquire" && lines[0] ? (
+              <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={mode} />
+            ) : (
+              <button type="button" onClick={() => setTab("inquire")}>
+                <i />
+                {t.orderInquireNow}
+              </button>
+            )}
+          </div>
+        )}
+      </main>
+      {videoOn && video && (
+        <div className="stall-video" role="dialog">
+          <button type="button" onClick={() => setVideoOn(false)}>×</button>
+          <video src={video} controls playsInline />
+        </div>
+      )}
+      <PhotoFrame shot={ui.shot} onClose={() => ui.setShot(null)} />
+      <ReportNote on={ui.reportOn} onClose={() => ui.setReportOn(false)} />
+    </>
   );
 }
 
@@ -762,6 +1018,9 @@ function MenuTile({
             <OptImg key={`${index}-${src}`} src={src} alt="" />
           ))}
         </span>
+      )}
+      {product.video && (
+        <video className="shop-tile-video" controls playsInline preload="metadata" src={product.video} />
       )}
       <div className="shop-tile-body">
         <button type="button" className="shop-tile-name" onClick={onOpen}>
@@ -1354,22 +1613,26 @@ function GrowShop({ shop }: { shop: Shop }) {
               {name}
               <Crown plan={shop.plan} className="plan-badge profile-badge" />
             </h1>
-            {shop.isOpen != null && (
+            {(() => {
+              const open = displayOpen(shop);
+              if (open == null) return null;
+              return (
             <div className="mt-4 overflow-hidden rounded-lg border-2 border-ink bg-ink text-center text-cream">
               <div className="flex items-center justify-center gap-2 px-3 py-3">
                 <span
                   className={cn(
                     "size-3 rounded-full",
-                    shop.isOpen ? "bg-[#3ddc84] shadow-[0_0_12px_#3ddc84]" : "bg-[#ff3b3b] shadow-[0_0_12px_#ff3b3b]",
+                    open ? "bg-[#3ddc84] shadow-[0_0_12px_#3ddc84]" : "bg-[#ff3b3b] shadow-[0_0_12px_#ff3b3b]",
                   )}
                   aria-hidden="true"
                 />
-                <span className="font-display text-xl tracking-[0.2em]">{shop.isOpen ? (ar ? "مفتوح" : "OPEN") : ar ? "مغلق" : "CLOSED"}</span>
+                <span className="font-display text-xl tracking-[0.2em]">{open ? (ar ? "مفتوح" : "OPEN") : ar ? "مغلق" : "CLOSED"}</span>
               </div>
               {shop.hours && <p className="border-t border-cream/20 px-3 py-2 text-xs tracking-wide text-cream">{shop.hours}</p>}
             </div>
-            )}
-            {shop.isOpen == null && shop.hours && <p className="mt-4 text-sm text-mute">{shop.hours}</p>}
+              );
+            })()}
+            {displayOpen(shop) == null && shop.hours && <p className="mt-4 text-sm text-mute">{shop.hours}</p>}
             {(shop.views ?? 0) > 0 && <p className="mt-2 text-xs text-mute">{t.views} · {shop.views!.toLocaleString()}</p>}
             <StallNote shop={shop} lang={ui.lang} />
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1387,7 +1650,11 @@ function GrowShop({ shop }: { shop: Shop }) {
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
               <DuckRating score={shop.rating ?? 0} />
               <p className="text-sm text-ink">
-                {shop.rating ?? "–"} · {shop.reviewCount ?? 0} {t.reviews}
+                {(() => {
+                  const count = shop.reviewCount ?? shop.reviews?.length ?? 0;
+                  if (!count) return shop.rating ? String(shop.rating) : null;
+                  return `${shop.rating ?? "–"} · ${count} ${t.reviews}`;
+                })()}
               </p>
               <button
                 type="button"
@@ -1589,7 +1856,13 @@ function GrowShop({ shop }: { shop: Shop }) {
             <h2 className="font-display text-2xl text-ink">{t.reviews}</h2>
             <div className="mt-2 flex items-center gap-2">
               <DuckRating score={shop.rating ?? 0} />
-              <span className="text-sm text-mute">{shop.rating} · {shop.reviewCount}</span>
+              <span className="text-sm text-mute">
+                {(() => {
+                  const count = shop.reviewCount ?? shop.reviews?.length ?? 0;
+                  if (!count) return shop.rating ? String(shop.rating) : null;
+                  return `${shop.rating ?? "–"} · ${count}`;
+                })()}
+              </span>
             </div>
             <ReviewList shop={shop} />
           </section>
@@ -1742,9 +2015,9 @@ function PremiumShop({ shop }: { shop: Shop }) {
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-4">
           {[
-            shop.isOpen == null ? "" : shop.isOpen ? t.open : t.closed,
+            displayOpen(shop) == null ? "" : displayOpen(shop) ? t.open : t.closed,
             (shop.views ?? 0) > 0 ? `${shop.views!.toLocaleString()} ${t.views}` : "",
-            `${shop.rating ?? "–"} · ${shop.reviewCount ?? 0} ${t.reviews}`,
+            (shop.reviewCount ?? shop.reviews?.length ?? 0) > 0 ? `${shop.rating ?? "–"} · ${shop.reviewCount ?? shop.reviews?.length ?? 0} ${t.reviews}` : "",
             shop.hours ?? "",
           ].filter(Boolean).map((s) => (
             <div key={s} className="rounded-lg border border-line bg-cream px-3 py-3 text-sm">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, type PlanId } from "@/lib/data";
+import { OFFERED_PLANS, PLANS, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { checkPromo, type PromoCode } from "@/lib/promo-codes";
@@ -13,18 +13,16 @@ export const Route = createFileRoute("/join/seller_/plan")({
   component: SellerPlanPage,
 });
 
-const PAID: PlanId[] = ["basic", "grow", "premium"];
+const PAID: PlanId[] = ["basic", "premium"];
 const RANK: Record<PlanId, number> = { free: 0, basic: 1, grow: 2, premium: 3 };
 const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo" | "hello" }[] = [
   { en: "The Souq", ar: "السوق", min: "free", hint: "treasury" },
   { en: "Order / Inquire Now", ar: "اطلب / استفسر الآن", min: "free" },
   { en: "WhatsApp stays yours", ar: "واتساب يبقى إلك", min: "free" },
   { en: "5 items", ar: "٥ أصناف", min: "free" },
-  { en: "30 items", ar: "٣٠ صنفاً", min: "grow" },
   { en: "100 items", ar: "١٠٠ صنف", min: "premium" },
-  { en: "3 photos an item", ar: "٣ صور للصنف", min: "free" },
-  { en: "5 photos an item", ar: "٥ صور للصنف", min: "basic" },
-  { en: "1 main photo and 5 sub photos", ar: "صورة رئيسية و٥ صور فرعية", min: "grow" },
+  { en: "1 main photo and 3 extra", ar: "صورة رئيسية و٣ إضافية", min: "free" },
+  { en: "A video", ar: "فيديو", min: "premium" },
   { en: "Your profile photo", ar: "صورة ملفك", min: "basic" },
   { en: "Open / Closed", ar: "مفتوح / مغلق", min: "basic" },
   { en: "View count", ar: "عدد المشاهدات", min: "basic" },
@@ -36,7 +34,6 @@ const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo
   { en: "Link your social media", ar: "اربط حساباتك", min: "basic" },
   { en: "Analytics", ar: "تحليلات", min: "grow" },
   { en: "2 Hello World posts per 24 hours", ar: "منشورا Hello World كل ٢٤ ساعة", min: "basic", hint: "hello" },
-  { en: "3 Hello World posts per 24 hours", ar: "٣ منشورات Hello World كل ٢٤ ساعة", min: "grow", hint: "hello" },
   { en: "5 Hello World posts per 24 hours", ar: "٥ منشورات Hello World كل ٢٤ ساعة", min: "premium", hint: "hello" },
   { en: "Messages from sellers", ar: "رسائل البائعين", min: "grow" },
   { en: "Search in the stall", ar: "بحث في الدكان", min: "premium" },
@@ -75,7 +72,8 @@ function SellerPlanPage() {
   useEffect(() => {
     const saved = readSellerDraft();
     setDraft(saved);
-    if (saved?.plan) setPlan(saved.plan);
+    if (saved?.plan && saved.plan !== "grow") setPlan(saved.plan);
+    if (saved?.plan === "grow") setPlan("premium");
   }, []);
 
   function remember(next: Partial<SellerDraft>) {
@@ -185,8 +183,8 @@ function SellerPlanPage() {
             ? "المجاني لثلاثة أشهر ينشئ الحساب مباشرة. الخطط المدفوعة دفعة واحدة بلا تجديد تلقائي، وتبقى بانتظار التأكيد."
             : "Free for 3 months creates the account now. A paid plan is a one-time payment with no auto-renew, and it stays pending until we confirm it."}
         </p>
-        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {(Object.keys(PLANS) as PlanId[]).map((id) => {
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          {OFFERED_PLANS.map((id) => {
             const item = PLANS[id];
             const on = plan === id;
             return (

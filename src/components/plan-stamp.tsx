@@ -50,6 +50,7 @@ export function Crown({ plan, className }: { plan: PlanId; className?: string })
 }
 
 export function PlanStamp({ plan, className }: { plan: PlanId; className?: string }) {
-  if (plan === "free" || !PLANS[plan]) return null;
-  return <Crown plan={plan} className={className ?? "h-6 w-7"} />;
+  const shown: PlanId = plan === "grow" ? "premium" : plan;
+  if (shown === "free" || !PLANS[shown]) return null;
+  return <Crown plan={shown} className={className ?? "h-6 w-7"} />;
 }
