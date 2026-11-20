@@ -1,6 +1,13 @@
 import { EXTRA_SHOPS } from "./extra-stalls.ts";
+import { FREE_TIER_ENABLED } from "./runtime-flags.ts";
 
-export type PlanId = "free" | "basic" | "grow" | "premium";
+export type PlanId = "free" | "basic" | "pro" | "premium";
+
+export function normalizePlan(plan: string | null | undefined): PlanId {
+  if (plan === "grow" || plan === "pro") return "pro";
+  if (plan === "basic" || plan === "premium" || plan === "free") return plan;
+  return FREE_TIER_ENABLED ? "free" : "basic";
+}
 export type CategoryId =
   | "food"
   | "handicrafts"
@@ -116,6 +123,11 @@ export const PLANS: Record<
     stampLabel: string;
     listings: number;
     images: number;
+    helloPerDay: number;
+    descChars: number;
+    options: boolean;
+    monthly: number;
+    bundles: { 3: number; 6: number; 12: number };
     video: boolean;
     openClosed: boolean;
     views: boolean;
@@ -135,11 +147,16 @@ export const PLANS: Record<
     name: "Free",
     nameAr: "مجاني",
     price: "0 JOD",
-    priceNote: "Free for 3 months",
+    priceNote: "Kept for old test accounts",
     badge: "none",
     stampLabel: "",
     listings: 5,
     images: 4,
+    helloPerDay: 1,
+    descChars: 200,
+    options: false,
+    monthly: 0,
+    bundles: { 3: 0, 6: 0, 12: 0 },
     video: false,
     openClosed: false,
     views: false,
@@ -161,8 +178,13 @@ export const PLANS: Record<
     priceNote: "Member stamp",
     badge: "yellow",
     stampLabel: "Member",
-    listings: 5,
+    listings: 10,
     images: 4,
+    helloPerDay: 2,
+    descChars: 200,
+    options: false,
+    monthly: 5,
+    bundles: { 3: 13.5, 6: 25.5, 12: 48 },
     video: false,
     openClosed: true,
     views: true,
@@ -176,16 +198,21 @@ export const PLANS: Record<
     blurb: "Your photo, yellow duck stamp, Open/Closed. One main photo and three extra. Still inquiry-only on WhatsApp.",
     blurbAr: "صورتك، ختم البط الأصفر، مفتوح/مغلق. صورة رئيسية وثلاث إضافية. الاستفسار على واتساب فقط.",
   },
-  grow: {
-    id: "grow",
-    name: "Grow",
-    nameAr: "نمو",
+  pro: {
+    id: "pro",
+    name: "Pro",
+    nameAr: "برو",
     price: "15 JOD/mo",
-    priceNote: "Established stamp",
+    priceNote: "Pro stamp",
     badge: "green",
-    stampLabel: "Established",
+    stampLabel: "Pro",
     listings: 30,
-    images: 4,
+    images: 6,
+    helloPerDay: 4,
+    descChars: 300,
+    options: true,
+    monthly: 15,
+    bundles: { 3: 40.5, 6: 76.5, 12: 144 },
     video: true,
     openClosed: true,
     views: true,
@@ -196,19 +223,24 @@ export const PLANS: Record<
     invoice: true,
     photo: true,
     customTemplate: false,
-    blurb: "Kept for sellers already on Grow. Same photos as every tier, plus a video, until they renew onto Premium.",
-    blurbAr: "للبائعين على نمو الآن. نفس الصور، مع فيديو، حتى يجدّدوا على مميّز.",
+    blurb: "Green crown, 30 items, one main photo and five more, reviews, and sizes or colors you name yourself.",
+    blurbAr: "تاج أخضر، 30 صنفاً، صورة رئيسية وخمس إضافية، تقييمات، ومقاسات أو ألوان تسميها أنت.",
   },
   premium: {
     id: "premium",
     name: "Premium",
     nameAr: "مميّز",
     price: "30 JOD/mo",
-    priceNote: "Souq Pro stamp",
+    priceNote: "Premium stamp",
     badge: "blue",
-    stampLabel: "Souq Pro",
+    stampLabel: "Premium",
     listings: 100,
-    images: 4,
+    images: 6,
+    helloPerDay: 6,
+    descChars: 500,
+    options: true,
+    monthly: 30,
+    bundles: { 3: 81, 6: 153, 12: 288 },
     video: true,
     openClosed: true,
     views: true,
@@ -226,7 +258,13 @@ export const PLANS: Record<
 
 export const SELLER_CATEGORY_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"] as const;
 export const LAUNCH_CATEGORY_IDS: CategoryId[] = [...SELLER_CATEGORY_IDS];
-export const OFFERED_PLANS: PlanId[] = ["free", "basic", "grow", "premium"];
+export const OFFERED_PLANS: PlanId[] = FREE_TIER_ENABLED ? ["free", "basic", "pro", "premium"] : ["basic", "pro", "premium"];
+
+export const PLAN_TOOLS: { id: string; en: string; ar: string; plans: PlanId[]; live: boolean }[] = [
+  { id: "multi-photo", en: "Pick several photos at once", ar: "اختيار عدة صور مرة واحدة", plans: ["free", "basic", "pro", "premium"], live: false },
+  { id: "duplicate", en: "Duplicate an item", ar: "نسخ صنف", plans: ["free", "basic", "pro", "premium"], live: false },
+  { id: "quick-replies", en: "Order quick replies", ar: "ردود سريعة على الطلب", plans: ["free", "basic", "pro", "premium"], live: false },
+];
 
 export function isSellerCategory(id: string): id is Exclude<CategoryId, "all"> {
   return (SELLER_CATEGORY_IDS as readonly string[]).includes(id);
@@ -391,7 +429,7 @@ export const SHOPS: Shop[] = [
     area: "Jabal Amman",
     areaAr: "جبل عمّان",
     category: "food",
-    plan: "grow",
+    plan: "pro",
     phone: "",
     avatar: "/brand/shops/namos.jpg",
     cover: "/brand/shops/maqluba.jpg",
@@ -595,7 +633,7 @@ export const SHOPS: Shop[] = [
     area: "Marka",
     areaAr: "ماركا",
     category: "misc",
-    plan: "grow",
+    plan: "pro",
     phone: "",
     avatar: "/brand/shops/camry.jpg",
     cover: "/brand/shops/camry.jpg",
@@ -686,7 +724,7 @@ export const SHOPS: Shop[] = [
     area: "Jabal Al Weibdeh",
     areaAr: "جبل اللويبدة",
     category: "clothes",
-    plan: "grow",
+    plan: "pro",
     phone: "",
     avatar: "/brand/shops/tiraz-cloth.jpg",
     cover: "/brand/shops/hanging.jpg",

@@ -1,4 +1,4 @@
-import type { PlanId, Shop } from "./data";
+import { PLANS, normalizePlan, type PlanId, type Shop } from "./data";
 import { hasWord } from "./shelves.ts";
 
 export type HelloPost = {
@@ -25,7 +25,10 @@ export type HelloHandle = {
   at: number;
 };
 
-export const HELLO_CAP: Record<PlanId, number> = { free: 1, basic: 2, grow: 3, premium: 5 };
+export function helloCap(plan: string | null | undefined) {
+  return PLANS[normalizePlan(plan)].helloPerDay;
+}
+export const HELLO_CAP: Record<PlanId, number> = { free: 1, basic: 2, pro: 4, premium: 6 };
 export const HELLO_WINDOW = 24 * 60 * 60 * 1000;
 export const HELLO_EDIT = 15 * 60 * 1000;
 

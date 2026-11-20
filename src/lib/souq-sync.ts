@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { PLANS, SELLER_CATEGORY_IDS, type Shop } from "@/lib/data";
+import { PLANS, SELLER_CATEGORY_IDS, normalizePlan, type Shop } from "@/lib/data";
 import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
@@ -22,7 +22,7 @@ const passwordSchema = z
 
 const ORDER_STATUS = z.enum(["new", "preparing", "done", "cancelled"]);
 const SELLER_CAT = z.enum(SELLER_CATEGORY_IDS);
-const PLAN = z.enum(["free", "basic", "grow", "premium"]);
+const PLAN = z.enum(["free", "basic", "pro", "premium", "grow"]);
 
 const profileSchema = z
   .object({
@@ -82,7 +82,7 @@ async function tx<T>(fn: (sql: Awaited<ReturnType<typeof db>>) => Promise<T>) {
 }
 
 function planIdOf(plan: string | null | undefined) {
-  return plan === "basic" || plan === "grow" || plan === "premium" ? plan : "free";
+  return normalizePlan(plan);
 }
 
 function membershipPaused(account: { plan: string | null; data?: Record<string, unknown> | null }) {
@@ -328,7 +328,7 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
     const profile = rows[0]?.profile;
     if (!profile) return { ok: false as const, error: "missing" as const };
     const chosen = data.plan;
-    const paid = chosen === "basic" || chosen === "grow" || chosen === "premium";
+    const paid = chosen === "basic" || chosen === "pro" || chosen === "premium" || chosen === "grow";
     if (!(paid && data.paymentStatus === "pending") && !data.promoCode) {
       const used = await sql<{ phone: string }>`select phone from souq_trial_phones where phone = ${data.phone}`;
       if (used[0]) return { ok: false as const, error: "trial" as const };
@@ -448,10 +448,10 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     let wantsTrial = false;
     if (role === "seller") {
       const chosen = profile.pendingPlan || profile.plan;
-      const paid = chosen === "basic" || chosen === "grow" || chosen === "premium";
+      const paid = chosen === "basic" || chosen === "pro" || chosen === "premium" || chosen === "grow";
       const now = Date.now();
-      plan = "free";
-      planEnds = now + 90 * 86400000;
+      plan = "basic";
+      planEnds = now + 30 * 86400000;
       paymentStatus = "active";
       billingPeriod = profile.billingPeriod === "yearly" ? "yearly" : "monthly";
       if (profile.promoCode) {
@@ -498,6 +498,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       billingPeriod,
       paymentRef: profile.paymentRef,
       paymentMethod: profile.paymentMethod,
+      trial: wantsTrial,
       joinedAt: Date.now(),
     };
     try {
@@ -1003,7 +1004,7 @@ export const saveSouqReview = createServerFn({ method: "POST" })
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
     const shops = await sql<{ plan: string | null }>`select plan from souq_shops where slug = ${data.shopSlug} limit 1`;
-    if (shops[0]?.plan !== "grow" && shops[0]?.plan !== "premium") return { ok: false as const, error: "plan" as const };
+    if (shops[0]?.plan !== "pro" && shops[0]?.plan !== "grow" && shops[0]?.plan !== "premium") return { ok: false as const, error: "plan" as const };
     const s = await kit();
     const id = `r-${s.randomBytes(8).toString("hex")}`;
     await sql`
@@ -1091,7 +1092,7 @@ export const saveSouqListing = createServerFn({ method: "POST" })
       price: z.number().finite().min(0).max(1_000_000).optional(),
       imageUrl: z.string().trim().max(500).optional(),
       thumbUrl: z.string().trim().max(500).optional(),
-      images: z.array(z.string().trim().max(500)).max(8).optional(),
+      images: z.array(z.string().trim().max(500)).max(6).optional(),
       hidden: z.boolean().optional(),
       body: z.record(z.string(), z.unknown()).optional(),
     }),
@@ -1109,7 +1110,15 @@ export const saveSouqListing = createServerFn({ method: "POST" })
     const image = (data.imageUrl && !data.imageUrl.startsWith("data:") ? data.imageUrl : images[0]) ?? null;
     const thumb = (data.thumbUrl && !data.thumbUrl.startsWith("data:") ? data.thumbUrl : image) ?? null;
     const body: Record<string, unknown> = { ...(data.body ?? {}), images, hidden: Boolean(data.hidden) };
-    if (typeof body.video === "string" && (body.video.startsWith("data:") || (account.plan !== "premium" && account.plan !== "grow"))) delete body.video;
+    const cap = limits.descChars;
+    if ((typeof body.desc === "string" && body.desc.length > cap) || (typeof body.descAr === "string" && body.descAr.length > cap)) {
+      return { ok: false as const, error: "text" as const };
+    }
+    if (!limits.options) {
+      delete body.choices;
+      delete body.chart;
+    }
+    if (typeof body.video === "string" && (body.video.startsWith("data:") || (account.plan !== "premium" && account.plan !== "pro" && account.plan !== "grow"))) delete body.video;
     delete body.password;
     const existing = await sql<{ id: string }>`select id from souq_listings where id = ${data.id} and owner_phone = ${phone}`;
     if (!existing[0]) {
@@ -1173,7 +1182,7 @@ export const uploadListingImage = createServerFn({ method: "POST" })
   .validator(z.object({ dataUrl: z.string().max(7_000_000), kind: z.enum(["listing", "hello"]).optional() }))
   .handler(async ({ data }) => storeImage(data.dataUrl, data.kind ?? "listing"));
 
-const HELLO_CAP: Record<string, number> = { free: 1, basic: 2, grow: 3, premium: 5 };
+const HELLO_CAP: Record<string, number> = { free: 1, basic: 2, pro: 4, premium: 6, grow: 4 };
 
 async function storeImage(dataUrl: string, kind: "listing" | "hello") {
   const s = await kit();

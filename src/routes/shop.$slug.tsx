@@ -32,7 +32,7 @@ function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listing
     hours: stallHoursLabel(account),
     isOpen: stallIsOpen(account),
     contactWhenClosed: account.contactWhenClosed !== false,
-    allowSellerMail: (account.sellerPlan === "grow" || account.sellerPlan === "premium") && account.allowSellerMail,
+    allowSellerMail: (account.sellerPlan === "pro" || account.sellerPlan === "premium") && account.allowSellerMail,
     openNote: account.openNote,
     openNoteAr: account.openNoteAr,
     closedNote: account.closedNote,
@@ -83,7 +83,7 @@ export function ShopPage({ slug }: { slug: string }) {
             isOpen: stallIsOpen(owner),
             hours: stallHoursLabel(owner) || base.hours,
             contactWhenClosed: owner.contactWhenClosed !== false,
-            allowSellerMail: (owner.sellerPlan === "grow" || owner.sellerPlan === "premium") && owner.allowSellerMail,
+            allowSellerMail: (owner.sellerPlan === "pro" || owner.sellerPlan === "premium") && owner.allowSellerMail,
             openNote: owner.openNote,
             openNoteAr: owner.openNoteAr,
             closedNote: owner.closedNote,
@@ -148,7 +148,7 @@ function SellerMail({ shop }: { shop: Shop }) {
   const sendSellerMessage = useSession((s) => s.sendSellerMessage);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
-  if (!user || user.role !== "seller" || (user.sellerPlan !== "grow" && user.sellerPlan !== "premium") || user.shopSlug === shop.slug || !shop.allowSellerMail) return null;
+  if (!user || user.role !== "seller" || (user.sellerPlan !== "pro" && user.sellerPlan !== "premium") || user.shopSlug === shop.slug || !shop.allowSellerMail) return null;
   const ar = lang === "ar";
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {

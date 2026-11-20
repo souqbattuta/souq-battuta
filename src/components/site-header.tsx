@@ -350,33 +350,25 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="site-footer-brand">
         <p className="site-footer-mark">
-          <span className="font-arabic">سوق بطوطة</span>
-          <span>Souq Battuta</span>
+          <span>Souq Battuta™</span>
+          <span className="font-arabic">سوق بطوطة™</span>
         </p>
       </div>
-      <nav className="site-footer-cols" aria-label={ar ? "تذييل" : "Footer"}>
-        <div>
-          <p>{ar ? "تجول" : "Explore"}</p>
-          <Link to="/home">{ar ? "الرئيسية" : "Home"}</Link>
-          <Link to="/category/$id" params={{ id: "all" }}>{ar ? "الأقسام" : "Categories"}</Link>
-        </div>
-        <div>
-          <p>{ar ? "للبائعين" : "For Sellers"}</p>
-          <Link to="/sell">{t.sell}</Link>
-          <Link to="/advertise">{ar ? "أعلن على سوق بطوطة" : "Advertise"}</Link>
-        </div>
-        <div>
-          <p>{ar ? "السوق" : "The Souq"}</p>
-          <Link to="/privacy">{t.privacy}</Link>
-          <Link to="/rules">{ar ? "القواعد" : "Rules"}</Link>
-          <Link to="/contact">{ar ? "تواصل" : "Contact"}</Link>
-          <Link to="/desk">{ar ? "مكتب السوق" : "Souq Desk"}</Link>
-          {!import.meta.env.PROD && (
-            <Link to="/checklist">{ar ? "قائمة التجربة" : "Test List"}</Link>
-          )}
-        </div>
-      </nav>
-      <p className="site-footer-copy">© Souq Battuta · {t.cityName}</p>
+      <div className="site-footer-row">
+        <Link to="/privacy">{t.privacy}</Link>
+        <a className="site-ig" href="https://www.instagram.com/souqbattuta" target="_blank" rel="noopener noreferrer" aria-label={ar ? "سوق بطوطة على إنستغرام" : "Souq Battuta on Instagram"}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="1.7" />
+            <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.7" />
+            <circle cx="17.5" cy="6.5" r="1" fill="currentColor" />
+          </svg>
+        </a>
+      </div>
+      {/* Terms of Use — pending namo's approval: <Link to="/terms">Terms of Use · شروط الاستخدام</Link> */}
+      {/* Contact — pending namo's approval: WhatsApp / email link */}
+      <p className="site-footer-copy" dir={ar ? "rtl" : "ltr"} lang={ar ? "ar" : "en"}>
+        {ar ? "© 2026 سوق بطوطة. جميع الحقوق محفوظة." : "© 2026 Souq Battuta. All rights reserved."}
+      </p>
     </footer>
   );
 }
@@ -399,8 +391,8 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function HelloMotif({ active }: { active: boolean }) {
-  return <img src={active ? "/brand/hello-motif-a-active.svg" : "/brand/hello-motif-a-inactive.svg"} alt="" width={24} height={24} />;
+function HelloMotif() {
+  return <img src="/brand/hello-motif-a-active.svg" alt="" width={24} height={24} />;
 }
 
 function BuyerTabs({ lang, path }: { lang: "en" | "ar"; path: string }) {
@@ -419,7 +411,7 @@ function BuyerTabs({ lang, path }: { lang: "en" | "ar"; path: string }) {
         <span>{ar ? "بحث" : "Search"}</span>
       </Link>
       <Link to="/hello" search={{ tab: "for-you", at: "", post: "" }} className="buyer-tab-hello" aria-current={path.startsWith("/hello") ? "page" : undefined}>
-        <HelloMotif active={path.startsWith("/hello")} />
+        <HelloMotif />
         <span>Hello World</span>
       </Link>
       <Link to="/account" search={{ tab: "saved", note: "" }} aria-current={onSaved ? "page" : undefined}>

@@ -217,11 +217,11 @@ export function showInForYou(shop: Shop) {
   return photos.some((src) => typeof src === "string" && src.length > 0 && !/duck\.jpg|placeholder|default-duck/i.test(src));
 }
 
-const PLAN_BOOST: Record<string, number> = { premium: 4, grow: 3, basic: 2, free: 1 };
+const PLAN_BOOST: Record<string, number> = { premium: 4, pro: 3, grow: 3, basic: 2, free: 1 };
 
 /** Small nudge for Explore and category browse. Not used by For You. */
 export function browseNudge(plan: string) {
-  return plan === "premium" ? 3 : plan === "grow" ? 2 : plan === "basic" ? 1 : 0;
+  return plan === "premium" ? 3 : plan === "pro" ? 2 : plan === "basic" ? 1 : 0;
 }
 
 export function newPlacesShelf(shops: Shop[]) {

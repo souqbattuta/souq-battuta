@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, type ItemChoice, type PlanId } from "@/lib/data";
+import { PLANS, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
 import { billingPhase, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
@@ -17,7 +17,7 @@ type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" |
 type DraftOption = { en: string; ar: string; extra: string; off: boolean; reason: "" | "unavailable" | "stock" | "sold"; back: string };
 type DraftChoice = { en: string; ar: string; options: DraftOption[] };
 
-const TEXT_CAP: Record<PlanId, number> = { premium: 400, grow: 280, basic: 180, free: 100 };
+const TEXT_CAP: Record<PlanId, number> = { premium: 500, pro: 300, basic: 200, free: 200 };
 
 function asDeskTab(value: unknown): DeskTab {
   if (value === "edit" || value === "products" || value === "profile") return "edit";
@@ -167,12 +167,12 @@ function SellerDesk() {
   }
 
   const tab = tabFromUrl;
-  const planId = user.sellerPlan ?? "free";
+  const planId = normalizePlan(user.sellerPlan);
   const plan = PLANS[planId];
   const subCount = Math.max(0, plan.images - 1);
   const profileSlug = user.shopSlug || slugForSeller(user);
   const account = accounts[user.phone];
-  const grow = planId === "grow" || planId === "premium";
+  const grow = plan.options;
 
   function chooseTab(next: DeskTab) {
     if (next === tab) return;
@@ -231,7 +231,7 @@ function SellerDesk() {
       return;
     }
     const images = [mainPhoto, ...subPhotos.slice(0, subCount)].filter((src): src is string => Boolean(src));
-    const allowVideo = planId === "premium" || planId === "grow";
+    const allowVideo = planId === "premium" || planId === "pro";
     const payload = {
       name: nameDraft,
       nameAr: nameArDraft,
@@ -243,8 +243,8 @@ function SellerDesk() {
       groupAr: groupArDraft,
       images,
       video: allowVideo ? video || "" : "",
-      choices: planId === "premium" || planId === "grow" ? toChoices(choices) : undefined,
-      chart: planId === "premium" || planId === "grow" ? chart || undefined : undefined,
+      choices: planId === "premium" || planId === "pro" ? toChoices(choices) : undefined,
+      chart: planId === "premium" || planId === "pro" ? chart || undefined : undefined,
     };
     const res = editingId ? await updateListing(editingId, payload) : await addListing(payload);
     if (!res?.ok) {
@@ -312,7 +312,7 @@ function SellerDesk() {
     { id: "inbox", en: "Inbox", ar: "الوارد" },
     { id: "reviews", en: "Reviews", ar: "التقييمات" },
     { id: "notes", en: "Notifications", ar: "التنبيهات", mark: alerts.length },
-    ...(planId === "grow" || planId === "premium" ? [{ id: "promos" as const, en: "Announcements", ar: "الإعلانات" }] : []),
+    ...(planId === "pro" || planId === "premium" ? [{ id: "promos" as const, en: "Announcements", ar: "الإعلانات" }] : []),
   ];
 
   return (
@@ -340,7 +340,7 @@ function SellerDesk() {
                 {membershipLine(user.planEnds ?? account?.planEnds, ar)}
               </p>
               <BillingBanner ar={ar} planId={planId} phase={billingPhase(account ?? user)} ends={user.planEnds ?? account?.planEnds} pending={user.pendingPlan || account?.pendingPlan} />
-              {(planId === "grow" || planId === "premium") && (
+              {(planId === "pro" || planId === "premium") && (
                 <p className="mt-1 text-sm text-ink">
                   {ar ? "المتابعون" : "Followers"}
                   {" · "}
@@ -354,8 +354,8 @@ function SellerDesk() {
                   {ar ? "رقّي الخطة" : "Upgrade plan"}
                 </Link>
               )}
-              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => (planId === "free" || planId === "grow" ? void navigate({ to: "/sell" }) : setPayOpen(true))}>
-                {planId === "grow" ? (ar ? "اختر خطة للتجديد" : "Pick a plan to renew") : ar ? "جدّد الآن" : "Renew now"}
+              <button type="button" className="inline-flex h-11 items-center rounded-md border border-ink px-4 text-sm font-semibold" onClick={() => (planId === "free" || planId === "pro" ? void navigate({ to: "/sell" }) : setPayOpen(true))}>
+                {planId === "pro" ? (ar ? "اختر خطة للتجديد" : "Pick a plan to renew") : ar ? "جدّد الآن" : "Renew now"}
               </button>
               <Link to="/shop/$slug" params={{ slug: profileSlug }} className="inline-flex h-11 items-center rounded-md border border-line px-4 text-sm font-semibold">
                 {ar ? "شوف الملف" : "View profile"}
@@ -585,7 +585,7 @@ function SellerDesk() {
                     setGroup={setGroupDraft}
                     setGroupAr={setGroupArDraft}
                   />
-                  {(planId === "premium" || planId === "grow") && (
+                  {(planId === "premium" || planId === "pro") && (
                     <ChoiceFields
                       lang={lang}
                       choices={choices}
@@ -617,7 +617,7 @@ function SellerDesk() {
                         />
                       ))}
                     </div>
-                    {(planId === "premium" || planId === "grow") && (
+                    {(planId === "premium" || planId === "pro") && (
                       <label className="mt-3 block text-sm">
                         {ar ? "فيديو" : "Video"}
                         <input
@@ -740,7 +740,7 @@ function SellerDesk() {
 
         {tab === "hello" && (
           <section className="mt-6">
-            <h2 className="font-display text-2xl">Hello, World!</h2>
+            <h2 className="font-display text-2xl"><img src="/brand/hello-motif-a-active.svg" alt="" aria-hidden="true" style={{ width: "0.95em", height: "0.95em", marginInlineEnd: ".4em", verticalAlign: "-0.15em" }} />Hello, World!</h2>
             <p className="hw-note">{ar ? "احكِ مع مجتمعك من هنا. كل منشور يبقى ٢٤ ساعة من وقت نشره. المجاني بلا سجل. الأساسي يبقي المصغّرة ٣٠ يوماً، والنمو ٩٠، والمميز يبقيها مع إعادة النشر." : "Talk to your community here. Each post stays up for 24 hours from the time it was published. Free keeps no history. Basic keeps a thumbnail for 30 days, Grow for 90, and Premium keeps it with Repost."}</p>
             <HelloComposer />
           </section>
@@ -851,7 +851,7 @@ function SellerDesk() {
           )}
           </div>
         )}
-        {tab === "promos" && (planId === "premium" || planId === "grow") && (
+        {tab === "promos" && (planId === "premium" || planId === "pro") && (
           <PromoBoard ar={ar} used={usedPromos} cap={planId === "premium" ? 4 : 1} daysLeft={daysLeftInMonth()} items={promotions} onAdd={addPromotion} />
         )}
         <SellerPhoneBar
@@ -869,8 +869,8 @@ function SellerDesk() {
         {moreOpen && phoneTab === "more" && (
           <div className="phone-more">
             <button type="button" onClick={() => { setMoreOpen(false); chooseTab("analytics"); }}>{ar ? "الإحصاءات" : "Stats"}</button>
-            <button type="button" onClick={() => { setMoreOpen(false); if (planId === "premium" || planId === "grow") chooseTab("promos"); }}>{ar ? "العروض" : "Promotions"}</button>
-            {(planId !== "premium" && planId !== "grow") && <p className="phone-more-note">{ar ? "العروض تُفتح مع خطة أعلى." : "Promotions open on a higher plan."}</p>}
+            <button type="button" onClick={() => { setMoreOpen(false); if (planId === "premium" || planId === "pro") chooseTab("promos"); }}>{ar ? "العروض" : "Promotions"}</button>
+            {(planId !== "premium" && planId !== "pro") && <p className="phone-more-note">{ar ? "العروض تُفتح مع خطة أعلى." : "Promotions open on a higher plan."}</p>}
             <Link to="/sell" onClick={() => setMoreOpen(false)}>{ar ? "خطتي والترقية" : "My plan & upgrade"}</Link>
             <button type="button" onClick={() => { const url = `${window.location.origin}/shop/${profileSlug}`; void navigator.clipboard?.writeText(url); setMoreOpen(false); }}>{ar ? "رابط الدكان" : "Shop link & QR code"}</button>
             <Link to="/rules" onClick={() => setMoreOpen(false)}>{ar ? "المساعدة والقواعد" : "Help & rules"}</Link>

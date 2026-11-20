@@ -15,7 +15,7 @@ export type StallSocial = any;
 export type SellerListing = any;
 import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
-import { PLANS, SHOPS, type CategoryId, type PlanId, type Shop } from "./data";
+import { PLANS, SHOPS, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
@@ -224,7 +224,7 @@ function asCategory(id: string): CategoryId | null {
 }
 
 function asPlan(id: string): PlanId {
-  return id === "basic" || id === "grow" || id === "premium" ? id : "free";
+  return normalizePlan(id);
 }
 
 export function setRemoteShops(shops: Shop[]) {
@@ -331,7 +331,7 @@ function directoryShops(accounts: any): Shop[] {
       products,
       reviews,
       askQty: account.askQty,
-      mode: account.sellerPlan === "grow" || account.sellerPlan === "premium" ? "both" : "inquire",
+      mode: account.sellerPlan === "pro" || account.sellerPlan === "premium" ? "both" : "inquire",
       handoff: "both",
       openNote: account.openNote,
       openNoteAr: account.openNoteAr,
@@ -1382,7 +1382,7 @@ const useSession = create<any>()(
       },
       addPromotion: (input: any) => {
         const user = get().user;
-        if (!user || user.role !== "seller" || user.sellerPlan !== "premium" && user.sellerPlan !== "grow") return { ok: false, error: "plan" };
+        if (!user || user.role !== "seller" || user.sellerPlan !== "premium" && user.sellerPlan !== "pro") return { ok: false, error: "plan" };
         const title = input.title.trim();
         if (title.length < 2) return { ok: false, error: "name" };
         const account = get().accounts[user.phone];
@@ -1551,10 +1551,10 @@ const useSession = create<any>()(
         const user = get().user;
         const text = body.trim();
         if (!user || user.role !== "seller" || text.length < 2) return { ok: false, error: "auth" };
-        if (user.sellerPlan !== "grow" && user.sellerPlan !== "premium") return { ok: false, error: "closed" };
+        if (user.sellerPlan !== "pro" && user.sellerPlan !== "premium") return { ok: false, error: "closed" };
         const target = sellerByPublicSlug(slug, get().accounts);
         if (!target || target.phone === user.phone) return { ok: false, error: "auth" };
-        if (!target.allowSellerMail || target.sellerPlan !== "grow" && target.sellerPlan !== "premium") return { ok: false, error: "closed" };
+        if (!target.allowSellerMail || target.sellerPlan !== "pro" && target.sellerPlan !== "premium") return { ok: false, error: "closed" };
         const id = mailId(user.phone, target.phone);
         const line = { id: `m-${Date.now()}`, fromPhone: user.phone, fromName: user.username, body: text, at: Date.now() };
         const mail = upsertThread(get().mail ?? [], {

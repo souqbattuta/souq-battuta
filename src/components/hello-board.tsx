@@ -478,7 +478,7 @@ function HelloViewer({
   }
   const shop = shopBySlug(shops, post.shopSlug);
   const ar = ui === "ar";
-  const canFollow = shop?.plan === "grow" || shop?.plan === "premium";
+  const canFollow = shop?.plan === "pro" || shop?.plan === "premium";
   const following = follows.includes(post.shopSlug);
   const follow =
     canFollow && user?.role !== "seller"
@@ -591,7 +591,7 @@ export function HelloStrip({ shops }: { shops: Shop[] }) {
     <section className="home-section home-shelf hw-home" aria-labelledby="home-hello">
       <div className="home-head home-head-rule">
         <div>
-          <p className="home-eyebrow home-kicker">Hello World</p>
+          <p className="home-eyebrow home-kicker"><img src="/brand/hello-motif-a-active.svg" alt="" aria-hidden="true" style={{ width: "1.4em", height: "1.4em", marginInlineEnd: ".4em", verticalAlign: "-0.2em" }} />Hello World</p>
           <h2 id="home-hello">{ar ? "اليوم من السوق" : "Today From the Souq"}</h2>
           <p className="home-shelf-note">
             {ar ? "كل منشور يبقى ٢٤ ساعة من وقت نشره." : "Each post stays up for 24 hours from the time it was published."}
@@ -799,7 +799,7 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
 
   return (
     <div className="hw-page">
-      <h1>Hello, World!</h1>
+      <h1><img src="/brand/hello-motif-a-active.svg" alt="" aria-hidden="true" style={{ width: "0.95em", height: "0.95em", marginInlineEnd: ".4em", verticalAlign: "-0.15em" }} />Hello, World!</h1>
       <div className="hw-board">
       <div className="hw-tabs" role="tablist">
         {(
@@ -818,7 +818,7 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
       <div className="hw-list">
         {ordered.map((post, index) => {
           const shop = shopBySlug(shops, post.shopSlug);
-          const canFollow = shop?.plan === "grow" || shop?.plan === "premium";
+          const canFollow = shop?.plan === "pro" || shop?.plan === "premium";
           const following = follows.includes(post.shopSlug);
           return (
             <article key={post.id} className="hw-card">

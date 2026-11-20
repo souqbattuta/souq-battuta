@@ -358,7 +358,7 @@ function BookmarkMenu({ shop, bookmarked }: { shop: Shop; bookmarked: boolean })
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [visibility, setVisibility] = useState<"private" | "public">("private");
-  if (shop.plan !== "basic" && shop.plan !== "grow" && shop.plan !== "premium") return null;
+  if (shop.plan !== "basic" && shop.plan !== "pro" && shop.plan !== "premium") return null;
   return (
     <div className="relative">
       <button type="button" className={actionBtn} onClick={() => setOpen((value) => !value)} aria-expanded={open}>
@@ -661,7 +661,7 @@ function PublicStall({ shop }: { shop: Shop }) {
   const topProduct = visible.find((product) => product.id === tops[0]?.id) ?? visible[0];
   const helloPost = posts[0];
   const newest = shop.reviews?.[shop.reviews.length - 1];
-  const mode = shop.plan === "premium" || shop.plan === "grow" ? "invoice" : "inquire";
+  const mode = shop.plan === "premium" || shop.plan === "pro" ? "invoice" : "inquire";
   const askQty = Boolean(shop.askQty);
   const lines = shop.products
     .map((product) => ({ product, qty: askQty ? counts[product.id] ?? 0 : picked.includes(product.id) ? 1 : 0 }))
@@ -831,7 +831,7 @@ function PublicStall({ shop }: { shop: Shop }) {
                 </button>
               );
             })}
-            {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={shop.plan === "premium" || shop.plan === "grow" ? "invoice" : "inquire"} />}
+            {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={shop.plan === "premium" || shop.plan === "pro" ? "invoice" : "inquire"} />}
           </div>
         )}
         <section className="stall-reviews">

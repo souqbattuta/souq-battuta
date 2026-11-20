@@ -97,15 +97,17 @@ function HomePage() {
           <span className="mt-2 block" dir="rtl" lang="ar">اكتشف مشاريع عمّان البيتية بدون إعلانات وبدون دفع مقابل الظهور. أنت تختار ما تراه.</span>
         </p>
 
-        <section className="home-section home-cats-wrap" aria-labelledby="home-cats">
+        <section className="home-section" aria-labelledby="home-cats">
           <div className="home-head">
             <div>
               <p className="home-eyebrow">{ar ? "تجوّل" : "Wander"}</p>
               <h2 id="home-cats">{ar ? "الأقسام" : "Categories"}</h2>
             </div>
           </div>
-          <CategoryRail ar={ar} />
         </section>
+        <div className="home-cats-wrap">
+          <CategoryRail ar={ar} />
+        </div>
 
         <HelloStrip shops={catalog} />
 

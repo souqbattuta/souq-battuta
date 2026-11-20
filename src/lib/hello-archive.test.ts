@@ -15,8 +15,8 @@ test("basic keeps a thumbnail for 30 days, grow for 90, premium without a limit"
   const expires = 10_000;
   assert.equal(helloKeep("basic", expires, expires + 30 * DAY - 1), "archive");
   assert.equal(helloKeep("basic", expires, expires + 30 * DAY), "drop");
-  assert.equal(helloKeep("grow", expires, expires + 90 * DAY - 1), "archive");
-  assert.equal(helloKeep("grow", expires, expires + 90 * DAY), "drop");
+  assert.equal(helloKeep("pro", expires, expires + 90 * DAY - 1), "archive");
+  assert.equal(helloKeep("pro", expires, expires + 90 * DAY), "drop");
   assert.equal(helloKeep("premium", expires, expires + 400 * DAY), "archive");
   assert.equal(archiveKeepMs("premium"), null);
 });

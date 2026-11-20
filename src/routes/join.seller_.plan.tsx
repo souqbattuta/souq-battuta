@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { OFFERED_PLANS, PLANS, type PlanId } from "@/lib/data";
+import { OFFERED_PLANS, PLANS, normalizePlan, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { checkPromo, type PromoCode } from "@/lib/promo-codes";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/join/seller_/plan")({
 });
 
 const PAID: PlanId[] = ["basic", "premium"];
-const RANK: Record<PlanId, number> = { free: 0, basic: 1, grow: 2, premium: 3 };
+const RANK: Record<PlanId, number> = { free: 0, basic: 1, pro: 2, premium: 3 };
 const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo" | "hello" }[] = [
   { en: "The Souq", ar: "السوق", min: "free", hint: "treasury" },
   { en: "Order / Inquire Now", ar: "اطلب / استفسر الآن", min: "free" },
@@ -27,24 +27,24 @@ const FEATURES: { en: string; ar: string; min: PlanId; hint?: "treasury" | "algo
   { en: "Open / Closed", ar: "مفتوح / مغلق", min: "basic" },
   { en: "View count", ar: "عدد المشاهدات", min: "basic" },
   { en: "5 keywords", ar: "٥ كلمات", min: "basic", hint: "algo" },
-  { en: "15 keywords", ar: "١٥ كلمة", min: "grow", hint: "algo" },
+  { en: "15 keywords", ar: "١٥ كلمة", min: "pro", hint: "algo" },
   { en: "25 keywords", ar: "٢٥ كلمة", min: "premium", hint: "algo" },
-  { en: "Reviews", ar: "تقييمات", min: "grow" },
-  { en: "Sort the shop your way", ar: "رتّب الدكان على كيفك", min: "grow" },
+  { en: "Reviews", ar: "تقييمات", min: "pro" },
+  { en: "Sort the shop your way", ar: "رتّب الدكان على كيفك", min: "pro" },
   { en: "Link your social media", ar: "اربط حساباتك", min: "basic" },
-  { en: "Analytics", ar: "تحليلات", min: "grow" },
+  { en: "Analytics", ar: "تحليلات", min: "pro" },
   { en: "2 Hello World posts per 24 hours", ar: "منشورا Hello World كل ٢٤ ساعة", min: "basic", hint: "hello" },
   { en: "5 Hello World posts per 24 hours", ar: "٥ منشورات Hello World كل ٢٤ ساعة", min: "premium", hint: "hello" },
-  { en: "Messages from sellers", ar: "رسائل البائعين", min: "grow" },
+  { en: "Messages from sellers", ar: "رسائل البائعين", min: "pro" },
   { en: "Search in the stall", ar: "بحث في الدكان", min: "premium" },
   { en: "Sizes and colors", ar: "مقاسات وألوان", min: "premium" },
-  { en: "Followers", ar: "متابعون", min: "grow" },
+  { en: "Followers", ar: "متابعون", min: "pro" },
 ];
 
 const VISIBILITY: Record<PlanId, [string, string]> = {
   free: ["Standard visibility", "ظهور عادي"],
   basic: ["Boosted", "ظهور أقوى"],
-  grow: ["Priority", "أولوية"],
+  pro: ["Priority", "أولوية"],
   premium: ["Top priority", "الأولوية الأولى"],
 };
 
@@ -62,7 +62,7 @@ function SellerPlanPage() {
   const redemptions = useSession((s) => s.promoRedemptions);
   const ar = lang === "ar";
   const [draft, setDraft] = useState<SellerDraft | null | undefined>(undefined);
-  const [plan, setPlan] = useState<PlanId>("free");
+  const [plan, setPlan] = useState<PlanId>("basic");
   const [payOpen, setPayOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [code, setCode] = useState("");
@@ -72,8 +72,8 @@ function SellerPlanPage() {
   useEffect(() => {
     const saved = readSellerDraft();
     setDraft(saved);
-    if (saved?.plan && saved.plan !== "grow") setPlan(saved.plan);
-    if (saved?.plan === "grow") setPlan("premium");
+    if (saved?.plan && saved.plan !== "pro") setPlan(normalizePlan(saved.plan));
+    if (saved?.plan === "pro" || saved?.plan === "grow") setPlan("pro");
   }, []);
 
   function remember(next: Partial<SellerDraft>) {
@@ -178,11 +178,10 @@ function SellerPlanPage() {
         </Link>
         <p className="mt-3 text-xs font-bold uppercase tracking-wider text-mute">{ar ? "الخطوة ٢ من ٢" : "Step 2 of 2"}</p>
         <h1 className="mt-1 font-display text-3xl text-ink">{ar ? "اختر الخطة" : "Choose a plan"}</h1>
-        <p className="mt-2 max-w-xl text-sm text-mute">
-          {ar
-            ? "المجاني لثلاثة أشهر ينشئ الحساب مباشرة. الخطط المدفوعة دفعة واحدة بلا تجديد تلقائي، وتبقى بانتظار التأكيد."
-            : "Free for 3 months creates the account now. A paid plan is a one-time payment with no auto-renew, and it stays pending until we confirm it."}
-        </p>
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-cream p-3 text-sm">
+          <img src="/brand/duck-mark.png" alt="" width={28} height={28} />
+          <p>{ar ? "أول شهر من الأساسي مجاني. شهر مجاني واحد لكل رقم واتساب. بعد ذلك اختر خطة ليبقى دكانك مفتوحاً." : "Your first month of Basic is free. One free month per WhatsApp number. After that, choose a plan to keep your shop open."}</p>
+        </div>
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           {OFFERED_PLANS.map((id) => {
             const item = PLANS[id];
@@ -198,8 +197,7 @@ function SellerPlanPage() {
                 }}
                 className={cn(
                   "flex flex-col rounded-xl border bg-cream p-4 text-start",
-                  on ? "border-ink ring-2 ring-ink" : "border-line",
-                  "hover:-translate-y-0.5 hover:border-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+                  id === "pro" ? "border-[#FFB705] ring-2 ring-[#FFB705]" : on ? "border-ink ring-2 ring-ink" : "border-line",
                 )}
               >
                 <span className="flex items-center justify-between gap-2">
@@ -210,19 +208,16 @@ function SellerPlanPage() {
                     <span className="plan-badge profile-badge" aria-hidden="true" />
                   )}
                 </span>
-                <span className="mt-1 text-lg font-semibold">{item.price}</span>
-                {id === "free" && <span className="text-xs font-semibold text-ink">{ar ? "مجاناً لثلاثة أشهر" : "Free for 3 months"}</span>}
-                <span className="text-xs text-mute">{ar ? VISIBILITY[id][1] : VISIBILITY[id][0]}</span>
-                <ul className="mt-3 space-y-1">
-                  {FEATURES.map((feature) => {
-                    const included = RANK[id] >= RANK[feature.min];
-                    return (
-                      <li key={feature.en} className={included ? "tier-feature" : "tier-feature is-out"}>
-                        <span className="tick" aria-hidden="true">{included ? "✓" : ""}</span>
-                        <span title={feature.hint ? (ar ? HINTS[feature.hint][1] : HINTS[feature.hint][0]) : undefined}>{ar ? feature.ar : feature.en}</span>
-                      </li>
-                    );
-                  })}
+                <span className="mt-1 text-sm font-semibold">{item.monthly} JOD / month · {item.monthly} دينار بالشهر</span>
+                <span className="mt-1 text-[11px] text-mute">
+                  3 months {item.bundles[3]} · 6 months {item.bundles[6]} · 12 months {item.bundles[12]} JOD
+                </span>
+                <ul className="mt-3 space-y-1 text-sm">
+                  <li>{item.listings} items · {item.listings} صنف</li>
+                  <li>1 main photo + {item.images - 1} more · صورة رئيسية + {item.images - 1} إضافية</li>
+                  <li>{item.helloPerDay} Hello World posts a day · {item.helloPerDay} منشورات Hello World باليوم</li>
+                  <li>Descriptions up to {item.descChars} characters · وصف حتى {item.descChars} حرف</li>
+                  <li>{item.options ? "✓" : "—"} Sizes, options and size chart · مقاسات وخيارات وجدول مقاسات</li>
                 </ul>
               </button>
             );

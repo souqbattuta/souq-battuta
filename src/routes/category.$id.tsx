@@ -87,10 +87,10 @@ function CategoryPage() {
               </div>
             </div>
           </div>
-          <div className="home-cats-wrap">
-            <CategoryRail ar={ar} active={cat.id} />
-          </div>
         </section>
+        <div className="home-cats-wrap">
+          <CategoryRail ar={ar} active={cat.id} />
+        </div>
 
         <HelloStrip shops={shops} />
 

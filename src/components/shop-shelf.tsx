@@ -105,6 +105,12 @@ export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
     for (const child of el.children) watch.observe(child);
     window.addEventListener("resize", measure);
     const later = window.setTimeout(measure, 400);
+    const chip = active ? el.querySelector<HTMLElement>(".home-cat.is-on") : null;
+    if (chip) {
+      const rail = chip.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      el.scrollLeft += rail.left - box.left - (box.width - rail.width) / 2;
+    }
     return () => {
       el.removeEventListener("scroll", measure);
       el.removeEventListener("load", measure, true);
@@ -112,7 +118,7 @@ export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
       window.clearTimeout(later);
       watch.disconnect();
     };
-  }, [ar]);
+  }, [ar, active]);
   function step(dir: number) {
     const el = scroller.current;
     if (!el) return;
@@ -130,7 +136,7 @@ export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
         {CAT_IDS.map((id) => {
           const c = CATEGORIES.find((item) => item.id === id)!;
           return (
-            <Link key={c.id} to="/category/$id" params={{ id: c.id }} className={c.id === active ? "home-cat is-on" : "home-cat"}>
+            <Link key={c.id} to="/category/$id" params={{ id: c.id }} className={c.id === active ? "home-cat is-on" : "home-cat"} aria-current={c.id === active ? "page" : undefined}>
               <span className="home-cat-frame">
                 <OptImg src={c.icon} alt="" />
               </span>
@@ -427,8 +433,8 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
 
   const seller = user?.role === "seller";
   const own = Boolean(user?.shopSlug && user.shopSlug === shop.slug);
-  const canFollow = !seller && !own && (shop.plan === "grow" || shop.plan === "premium");
-  const canBookmark = !seller && !own && (shop.plan === "basic" || shop.plan === "grow" || shop.plan === "premium");
+  const canFollow = !seller && !own && (shop.plan === "pro" || shop.plan === "premium");
+  const canBookmark = !seller && !own && (shop.plan === "basic" || shop.plan === "pro" || shop.plan === "premium");
   const canReport = !own && !seller;
   const following = follows.includes(shop.slug);
   const saved = bookmarks.includes(shop.slug);

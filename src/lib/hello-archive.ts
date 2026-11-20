@@ -1,12 +1,12 @@
 /** How long a Hello World thumbnail stays after the 24-hour post ends. */
 
-export type HelloPlan = "free" | "basic" | "grow" | "premium";
+export type HelloPlan = "free" | "basic" | "pro" | "premium";
 
 const DAY = 24 * 60 * 60 * 1000;
 const GRACE = 5 * DAY;
 
 export function normalizePlan(plan: string | null | undefined): HelloPlan {
-  return plan === "basic" || plan === "grow" || plan === "premium" ? plan : "free";
+  return plan === "basic" || plan === "pro" || plan === "grow" || plan === "premium" ? (plan === "grow" ? "pro" : plan) : "free";
 }
 
 /** A paid plan past its end date and the 5-day grace is treated as Free. */
@@ -21,7 +21,7 @@ export function effectivePlan(plan: string | null | undefined, planEnds: number 
 export function archiveKeepMs(plan: HelloPlan): number | null {
   if (plan === "free") return 0;
   if (plan === "basic") return 30 * DAY;
-  if (plan === "grow") return 90 * DAY;
+  if (plan === "pro") return 90 * DAY;
   return null;
 }
 

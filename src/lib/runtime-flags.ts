@@ -4,6 +4,8 @@
  * SOUQ_ADMIN_PHONES — comma-separated owner phones allowed to open /admin.
  * SOUQ_ALLOW_TEST_OTP=1 — accepts 424242 only when NODE_ENV is not production.
  */
+export const FREE_TIER_ENABLED = false;
+
 export function allowTestOtp(env: NodeJS.ProcessEnv = process.env) {
   return env.SOUQ_ALLOW_TEST_OTP === "1" && env.NODE_ENV !== "production";
 }

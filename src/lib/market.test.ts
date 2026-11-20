@@ -73,7 +73,7 @@ test("Hello World ranks follows, then keywords, then time, never plan", () => {
   assert.equal(ranked[1]?.id, "b");
   assert.equal(HELLO_CAP.free, 1);
   assert.equal(HELLO_CAP.basic, 2);
-  assert.equal(HELLO_CAP.grow, 3);
+  assert.equal(HELLO_CAP.pro, 4);
   assert.equal(HELLO_CAP.premium, 5);
   assert.equal(HELLO_WINDOW, 24 * 60 * 60 * 1000);
   assert.equal(HELLO_EDIT, 15 * 60 * 1000);

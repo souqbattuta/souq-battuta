@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 
 const CROWN_COLOR: Record<Exclude<PlanId, "free">, string> = {
   basic: "#e3b23c",
-  grow: "#1f7a4d",
+  pro: "#1f7a4d",
   premium: "#1c305c",
 };
 
@@ -25,7 +25,7 @@ export function Crown({ plan, className }: { plan: PlanId; className?: string })
   if (plan === "free") return null;
   if (className?.includes("plan-badge")) {
     const plate = plan === "premium" ? "#e3b23c" : "#fffdf8";
-    const ring = plan === "grow" ? "#1f7a4d" : plan === "premium" ? "#1c305c" : "#c4922a";
+    const ring = plan === "pro" ? "#1f7a4d" : plan === "premium" ? "#1c305c" : "#c4922a";
     return (
       <span
         aria-hidden="true"
@@ -49,8 +49,8 @@ export function Crown({ plan, className }: { plan: PlanId; className?: string })
   );
 }
 
-export function PlanStamp({ plan, className }: { plan: PlanId; className?: string }) {
-  const shown: PlanId = plan === "grow" ? "premium" : plan;
+export function PlanStamp({ plan, className }: { plan: PlanId | "grow"; className?: string }) {
+  const shown = plan === "grow" ? "pro" : plan;
   if (shown === "free" || !PLANS[shown]) return null;
   return <Crown plan={shown} className={className ?? "h-6 w-7"} />;
 }

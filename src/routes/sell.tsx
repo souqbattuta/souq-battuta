@@ -14,7 +14,7 @@ export const Route = createFileRoute("/sell")({ component: SellPage });
 const VISIBILITY: Record<PlanId, string> = {
   free: "Standard visibility",
   basic: "Boosted",
-  grow: "Priority",
+  pro: "Priority",
   premium: "Top priority",
 };
 
@@ -56,7 +56,7 @@ function SellPage() {
         <p className="text-[10px] font-bold uppercase tracking-wider text-red">Sellers keep the customer</p>
         <h1 className="font-display text-4xl">{t.sell}</h1>
         <p className="mt-2 max-w-2xl text-mute">
-          WhatsApp stays yours. No in-app payment. Free is three months once per phone. After that, the same number cannot use Free again.
+          WhatsApp stays yours. Your first month of Basic is free. One free month per WhatsApp number. Nothing renews on its own.
         </p>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           {OFFERED_PLANS.map((id) => {
@@ -69,16 +69,15 @@ function SellPage() {
                 </div>
                 <p className="mt-1 text-lg font-semibold">{p.price}</p>
                 <p className="text-xs text-mute">{id === "free" ? (ar ? "مجاناً لثلاثة أشهر" : "Free for 3 months") : p.priceNote}</p>
-                <p className="text-xs font-semibold text-ink">{ar ? { free: "ظهور عادي", basic: "ظهور أقوى", grow: "أولوية", premium: "الأولوية الأولى" }[id] : VISIBILITY[id]}</p>
+                <p className="text-xs font-semibold text-ink">{ar ? { free: "ظهور عادي", basic: "ظهور أقوى", pro: "أولوية", premium: "الأولوية الأولى" }[id] : VISIBILITY[id]}</p>
                 <p className="mt-3 flex-1 text-sm">{lang === "ar" ? p.blurbAr : p.blurb}</p>
-                <ul className="mt-3 space-y-1 text-xs text-mute">
-                  <li>{p.listings} listings · 1 main photo + 3 extra</li>
-                  {p.video && <li>{ar ? "فيديو" : "Video"}</li>}
-                  <li>{p.openClosed ? "Open/Closed" : "No Open/Closed"}</li>
-                  <li>{p.views ? "Profile views" : "No views"}</li>
-                  <li>{p.reviews ? "Reviews" : "No reviews"}</li>
-                  <li>{p.socials ? "Verified socials" : "No socials"}</li>
-                  <li>{p.invoice ? "Inquiry or invoice slip" : "Inquiry only"}</li>
+                <ul className="mt-3 space-y-1 text-sm">
+                  <li>{p.listings} items · {p.listings} صنف</li>
+                  <li>1 main photo + {p.images - 1} more</li>
+                  <li>{p.helloPerDay} Hello World posts a day</li>
+                  <li>Descriptions up to {p.descChars} characters</li>
+                  <li>{p.options ? "✓ Sizes, options and size chart" : "— Sizes, options and size chart"}</li>
+                  <li className="text-xs text-mute">3 months {p.bundles[3]} · 6 months {p.bundles[6]} · 12 months {p.bundles[12]} JOD</li>
                 </ul>
                 <button
                   type="button"
@@ -98,7 +97,7 @@ function SellPage() {
                         ? "ahlan-bakery"
                         : id === "basic"
                           ? "alchemist-clay"
-                          : id === "grow"
+                          : id === "pro"
                             ? "namos-kitchen"
                             : "beit-al-tiraz",
                   }}
