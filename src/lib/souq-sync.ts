@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { PLANS, SELLER_CATEGORY_IDS, normalizePlan, type Shop } from "@/lib/data";
+import { PLANS, SELLER_CATEGORY_IDS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type Shop } from "@/lib/data";
 import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
@@ -44,6 +44,7 @@ const profileSchema = z
     paymentMethod: z.enum(["free", "cliq", "card"]).optional(),
     paymentRef: z.string().trim().max(80).optional(),
     pendingPlan: PLAN.optional(),
+    whatsappPhone: z.string().trim().max(20).optional(),
   })
   .strict();
 
@@ -206,6 +207,11 @@ async function openSession(sql: Awaited<ReturnType<typeof db>>, s: Kit, phone: s
   setSessionCookie(s, token);
 }
 
+function shopWa(raw: unknown) {
+  const phone = canonPhone(String(raw ?? ""));
+  return SHOP_WHATSAPP.test(phone) ? phone : "";
+}
+
 function canonPhone(raw: string) {
   let text = String(raw ?? "").trim().replace(/[\s().-]/g, "");
   if (text.startsWith("00")) text = `+${text.slice(2)}`;
@@ -284,6 +290,11 @@ export const stageSouqSignup = createServerFn({ method: "POST" })
   )
   .handler(async ({ data: raw }) => {
     const data = { ...raw, phone: canonPhone(raw.phone) };
+    if (data.profile.intent === "seller") {
+      const whatsapp = shopWa(data.profile.whatsappPhone);
+      if (!whatsapp) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+      data.profile = { ...data.profile, whatsappPhone: whatsapp };
+    }
     const s = await kit();
     const sql = await db();
     const ip = clientIp(s);
@@ -327,6 +338,7 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
     `;
     const profile = rows[0]?.profile;
     if (!profile) return { ok: false as const, error: "missing" as const };
+    if (!shopWa(profile.whatsappPhone)) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
     const chosen = data.plan;
     const paid = chosen === "basic" || chosen === "pro" || chosen === "premium" || chosen === "grow";
     if (!(paid && data.paymentStatus === "pending") && !data.promoCode) {
@@ -436,6 +448,11 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     const pending = pendingRows[0];
     if (!pending) return { ok: false as const, error: "missing" as const };
     const profile = pending.profile;
+    if (profile.intent === "seller") {
+      const whatsapp = shopWa(profile.whatsappPhone);
+      if (!whatsapp) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+      profile.whatsappPhone = whatsapp;
+    }
     const existing = await loadAccount(sql, data.phone);
     let role: "buyer" | "seller" = profile.intent === "seller" ? "seller" : "buyer";
     let plan: string | null = null;
@@ -500,6 +517,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       paymentMethod: profile.paymentMethod,
       trial: wantsTrial,
       joinedAt: Date.now(),
+      ...(role === "seller" ? { whatsappPhone: profile.whatsappPhone } : {}),
     };
     try {
       await tx(async (trx) => {
@@ -541,14 +559,15 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         }
         if (role === "seller" && slug) {
           await trx`
-            insert into souq_shops (slug, owner_phone, name, area, plan, category)
-            values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""})
+            insert into souq_shops (slug, owner_phone, name, area, plan, category, publishable)
+            values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""}, ${shopWa(profile.whatsappPhone) !== ""})
             on conflict (slug) do update set
               owner_phone = excluded.owner_phone,
               name = excluded.name,
               area = excluded.area,
               plan = excluded.plan,
               category = excluded.category,
+              publishable = excluded.publishable,
               updated_at = now()
           `;
           await trx`
@@ -839,7 +858,13 @@ export const pushSouq = createServerFn({ method: "POST" })
       incoming.findWords = incoming.findWords.slice(0, PLANS[planIdOf(account.plan)].keywords);
     }
     Object.assign(next, incoming);
-    if (typeof next.whatsappPhone === "string" && !/^\+9627\d{8}$/.test(next.whatsappPhone)) delete next.whatsappPhone;
+    if (Object.prototype.hasOwnProperty.call(parsed.data, "whatsappPhone")) {
+      const incoming = shopWa(parsed.data.whatsappPhone);
+      const current = shopWa(account.data?.whatsappPhone);
+      if (!incoming) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+      next.whatsappPhone = current && incoming !== current ? current : current || undefined;
+      if (!current) delete next.whatsappPhone;
+    }
     for (const key of ["stallAvatar", "stallCover"] as const) {
       const value = next[key];
       if (typeof value === "string" && value.startsWith("data:")) delete next[key];
@@ -863,11 +888,116 @@ export const pushSouq = createServerFn({ method: "POST" })
           cover_url = ${cover},
           thumb_url = ${avatar},
           demo = case when ${next.demo === true} then true else demo end,
+          publishable = ${shopWa(next.whatsappPhone) !== ""},
           updated_at = now()
         where slug = ${account.shop_slug} and owner_phone = ${phone}
       `;
     }
     return { ok: true as const };
+  });
+
+export const requestWhatsappChange = createServerFn({ method: "POST" })
+  .validator(z.object({ phone: z.string().trim().min(8).max(20) }))
+  .handler(async ({ data }) => {
+    const whatsapp = shopWa(data.phone);
+    if (!whatsapp) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+    const s = await kit();
+    const sql = await db();
+    const owner = await sessionPhone(sql);
+    if (!owner) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, owner);
+    if (!account || account.role !== "seller") return { ok: false as const, error: "auth" as const };
+    const current = shopWa(account.data?.whatsappPhone);
+    if (current && current === whatsapp) return { ok: true as const, phone: whatsapp, same: true as const };
+    const taken = await sql<{ phone: string }>`
+      select phone from souq_accounts
+      where phone <> ${owner}
+        and (phone = ${whatsapp} or data->>'whatsappPhone' = ${whatsapp})
+      limit 1
+    `;
+    if (taken[0]) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+    const ip = clientIp(s);
+    if (!(await hitRate(sql, `ip:wa:${ip}`, 8, 3600))) return { ok: false as const, error: "rate" as const };
+    if (!(await hitRate(sql, `phone:wa:${whatsapp}`, 5, 3600))) return { ok: false as const, error: "rate" as const };
+    const recent = await sql<{ sent_at: string }>`select sent_at from souq_otp where phone = ${whatsapp}`;
+    if (recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 60_000) {
+      return { ok: false as const, error: "cooldown" as const };
+    }
+    const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const salt = s.randomBytes(16).toString("hex");
+    const { sendWhatsAppCode } = await import("@/lib/whatsapp-otp");
+    const sent = await sendWhatsAppCode(whatsapp, code);
+    if (!sent.ok && !(sent.error === "unconfigured" && allowTestOtp())) {
+      return { ok: false as const, error: sent.error === "unconfigured" ? "unconfigured" as const : "send" as const };
+    }
+    if (sent.ok || allowTestOtp()) {
+      await sql`
+        insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at, purpose)
+        values (${whatsapp}, ${hashOtp(s, code, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now(), 'whatsapp')
+        on conflict (phone) do update set
+          code_hash = excluded.code_hash,
+          salt = excluded.salt,
+          expires_at = excluded.expires_at,
+          attempts = 0,
+          sent_at = now(),
+          purpose = 'whatsapp'
+      `;
+    }
+    const next = { ...(account.data ?? {}), pendingWhatsapp: whatsapp };
+    await sql`update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${owner}`;
+    return { ok: true as const, phone: whatsapp };
+  });
+
+export const confirmWhatsappChange = createServerFn({ method: "POST" })
+  .validator(z.object({
+    phone: z.string().trim().min(8).max(20),
+    code: z.string().trim().regex(/^\d{6}$/),
+  }))
+  .handler(async ({ data }) => {
+    const whatsapp = shopWa(data.phone);
+    if (!whatsapp) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+    const s = await kit();
+    const sql = await db();
+    const owner = await sessionPhone(sql);
+    if (!owner) return { ok: false as const, error: "auth" as const };
+    if (!(await hitRate(sql, `ip:wa-confirm:${clientIp(s)}`, 20, 3600))) return { ok: false as const, error: "rate" as const };
+    const account = await loadAccount(sql, owner);
+    if (!account || account.role !== "seller") return { ok: false as const, error: "auth" as const };
+    if (account.data?.pendingWhatsapp !== whatsapp) return { ok: false as const, error: "otp" as const };
+    const rows = await sql<{ code_hash: string; salt: string; attempts: number; expires_at: string; purpose: string }>`
+      select code_hash, salt, attempts, expires_at, purpose from souq_otp where phone = ${whatsapp}
+    `;
+    const otp = rows[0];
+    const testCode = data.code === "424242" && allowTestOtp();
+    if (!testCode) {
+      if (!otp || otp.purpose !== "whatsapp") return { ok: false as const, error: "otp" as const };
+      if (new Date(otp.expires_at).getTime() <= Date.now()) return { ok: false as const, error: "expired" as const };
+      if (otp.attempts >= MAX_OTP_ATTEMPTS) return { ok: false as const, error: "attempts" as const };
+      if (!otpMatches(s, data.code, otp.salt, otp.code_hash)) {
+        await sql`update souq_otp set attempts = attempts + 1 where phone = ${whatsapp}`;
+        return { ok: false as const, error: "otp" as const };
+      }
+    }
+    const taken = await sql<{ phone: string }>`
+      select phone from souq_accounts
+      where phone <> ${owner}
+        and (phone = ${whatsapp} or data->>'whatsappPhone' = ${whatsapp})
+      limit 1
+    `;
+    if (taken[0]) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+    const previous = shopWa(account.data?.whatsappPhone);
+    const next = { ...(account.data ?? {}), whatsappPhone: whatsapp };
+    delete next.pendingWhatsapp;
+    await sql`update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${owner}`;
+    if (account.shop_slug) {
+      await sql`update souq_shops set publishable = true, updated_at = now() where slug = ${account.shop_slug} and owner_phone = ${owner}`;
+    }
+    await sql`delete from souq_otp where phone = ${whatsapp}`;
+    if (previous && previous !== whatsapp) {
+      const { sendWhatsAppNotice } = await import("@/lib/whatsapp-otp");
+      await sendWhatsAppNotice(previous, "Souq Battuta: the WhatsApp number on your shop was changed. If this was not you, sign in and set it back.");
+    }
+    return { ok: true as const, phone: whatsapp };
   });
 
 const algoField = z.object({
@@ -976,6 +1106,17 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
+    const open = await sql<{ slug: string }>`
+      select s.slug
+      from souq_shops s
+      join souq_accounts a on a.phone = s.owner_phone
+      where s.slug = ${data.shopSlug}
+        and s.hidden = false
+        and s.demo = false
+        and a.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
+      limit 1
+    `;
+    if (!open[0]) return { ok: false as const, error: "phone" as const };
     const s = await kit();
     const id = `o-${s.randomBytes(8).toString("hex")}`;
     await sql`
@@ -1500,6 +1641,8 @@ export const listPublicShops = createServerFn({ method: "GET" })
       where s.hidden = false
         and s.demo = false
         and coalesce(a.data->>'demo', 'false') <> 'true'
+        and s.publishable = true
+        and a.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
         and (
           coalesce(nullif(a.data->>'planEnds', '')::bigint, 0) = 0
           or (a.data->>'planEnds')::bigint > ${nowMs}
@@ -1594,6 +1737,14 @@ export const listHello = createServerFn({ method: "GET" })
       from souq_hello_posts p
       left join souq_shops s on s.slug = p.shop_slug and s.hidden = false and s.demo = false
       where p.status = 'live' and p.expires_at > now()
+        and exists (
+          select 1 from souq_shops pub
+          join souq_accounts owner on owner.phone = pub.owner_phone
+          where pub.slug = p.shop_slug
+            and pub.hidden = false
+            and pub.demo = false
+            and owner.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
+        )
         and not exists (
           select 1 from souq_shops blocked
           where blocked.slug = p.shop_slug and (blocked.hidden or blocked.demo)

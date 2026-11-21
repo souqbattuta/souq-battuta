@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { CATEGORIES, LAUNCH_CATEGORY_IDS, isSellerCategory, type CategoryId } from "@/lib/data";
-import { isValidArabPhone, isValidSellerUsername, isValidUsername, normalizePhone, usernameTaken, useSession } from "@/lib/session";
+import { CATEGORIES, LAUNCH_CATEGORY_IDS, WHATSAPP_REQUIRED, isSellerCategory, type CategoryId } from "@/lib/data";
+import { isShopWhatsapp, isValidArabPhone, isValidSellerUsername, isValidUsername, normalizePhone, usernameTaken, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
 import { stageSouqSignup } from "@/lib/souq-sync";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
@@ -52,6 +52,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     const fd = new FormData(e.currentTarget);
     const username = String(fd.get("username") ?? "");
     const phone = String(fd.get("phone") ?? "");
+    const whatsapp = String(fd.get("whatsapp") ?? "");
     const password = String(fd.get("password") ?? "");
     const repeat = String(fd.get("repeat") ?? "");
     const city = String(fd.get("city") ?? "");
@@ -66,6 +67,9 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     else if (!isValidUsername(username)) return setError(t.shortUser);
     if (usernameTaken(username, accounts, "")) return setError(t.usernameTaken);
     if (!isValidArabPhone(phone)) return setError(t.invalidPhone);
+    const phoneNorm = normalizePhone(phone);
+    const whatsappNorm = intent === "seller" ? normalizePhone(whatsapp) : "";
+    if (intent === "seller" && !isShopWhatsapp(whatsappNorm)) return setError(WHATSAPP_REQUIRED);
     if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return setError(t.shortPass);
     if (password !== repeat) return setError(t.mismatch);
     if (!city) return setError(t.city);
@@ -73,7 +77,6 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     if (fd.get("age") !== "on" || fd.get("privacy") !== "on") return setError(t.ticks);
     setLoading(true);
     if (intent === "seller") {
-      const phoneNorm = normalizePhone(phone);
       const staged = await stageSouqSignup({
         data: {
           phone: phoneNorm,
@@ -88,12 +91,13 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
             categories: categories.filter(isSellerCategory),
             areaLat: pin?.lat,
             areaLng: pin?.lng,
+            whatsappPhone: whatsappNorm,
           },
         },
       });
       setLoading(false);
       if (!staged.ok) {
-        setError(staged.error === "exists" ? t.usernameTaken : staged.error === "rate" ? t.otpRate : t.otpSend);
+        setError(staged.error === "exists" ? t.usernameTaken : staged.error === "rate" ? t.otpRate : staged.error === "whatsapp" ? WHATSAPP_REQUIRED : staged.error === "phone" ? WHATSAPP_REQUIRED : t.otpSend);
         return;
       }
       saveSellerDraft({
@@ -102,6 +106,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
         shopName,
         address,
         city,
+        whatsappPhone: whatsappNorm,
         areaLat: pin?.lat,
         areaLng: pin?.lng,
         categories,
@@ -129,8 +134,35 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
       {intent === "buyer" && <Field name="displayName" label={t.displayName} required />}
       {intent === "seller" && <Field name="shopName" label={ar ? "اسم الدكان" : "Shop name"} defaultValue={draft?.shopName} required />}
       <Field name="username" label={t.username} autoComplete="username" defaultValue={draft?.username} required />
-      <Field name="phone" label={t.phone} type="tel" autoComplete="tel" placeholder="07XXXXXXXX or +9627XXXXXXXX" defaultValue={draft?.phone} required />
+      <Field
+        name="phone"
+        label={t.phone}
+        type="tel"
+        autoComplete="tel"
+        placeholder="07XXXXXXXX or +9627XXXXXXXX"
+        defaultValue={draft?.phone}
+        required
+        onChange={intent === "seller" ? (event) => {
+          const form = event.currentTarget.form;
+          const wa = form?.elements.namedItem("whatsapp");
+          if (wa instanceof HTMLInputElement && wa.dataset.touched !== "1") wa.value = event.currentTarget.value;
+        } : undefined}
+      />
       <p className="text-xs text-mute">{t.invalidPhone}</p>
+      {intent === "seller" && (
+        <Field
+          name="whatsapp"
+          label="WhatsApp number for orders · رقم واتساب للطلبات"
+          type="tel"
+          autoComplete="tel"
+          placeholder="07XXXXXXXX"
+          defaultValue={draft?.whatsappPhone || draft?.phone}
+          required
+          onChange={(event) => {
+            event.currentTarget.dataset.touched = "1";
+          }}
+        />
+      )}
       <Field name="password" label={t.password} type="password" autoComplete="new-password" required />
       <Field name="repeat" label={t.repeat} type="password" autoComplete="new-password" required />
       <label className="block text-sm">
@@ -209,6 +241,7 @@ function Field({
   required,
   defaultValue,
   autoComplete,
+  onChange,
 }: {
   name: string;
   label: string;
@@ -217,6 +250,7 @@ function Field({
   required?: boolean;
   defaultValue?: string;
   autoComplete?: string;
+  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <label className="block text-sm">
@@ -231,6 +265,7 @@ function Field({
         required={required}
         defaultValue={defaultValue}
         autoComplete={autoComplete}
+        onChange={onChange}
         className="h-12 w-full rounded-md border border-line bg-white px-3 outline-none focus:border-ink"
       />
     </label>

@@ -66,13 +66,7 @@ export function WhatsAppCta({
   const [locNote, setLocNote] = useState("");
 
   const digits = waDigits(shop.phone);
-  if (!digits) {
-    return (
-      <p className="text-sm text-mute">
-        {lang === "ar" ? "هذا الدكان ما أضاف واتساب بعد." : "This shop hasn't added WhatsApp yet"}
-      </p>
-    );
-  }
+  if (!digits) return null;
 
   if (!user) {
     return (

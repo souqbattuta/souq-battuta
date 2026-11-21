@@ -12,6 +12,7 @@ import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
 import { helloLive, type HelloPost } from "@/lib/hello";
+import { isPublishable } from "@/lib/shelves";
 import { shopTopItems } from "@/lib/souq-sync";
 import { photoControlName } from "@/lib/photo-label";
 import { sectionsWithMatches } from "@/lib/shop-search";
@@ -714,6 +715,12 @@ function PublicStall({ shop }: { shop: Shop }) {
         </button>
       </div>
       <main className="stall-sheet">
+        {ui.own && !isPublishable(shop) && (
+          <div className="mx-4 mt-4 rounded-md border-2 border-[#FFB705] bg-[#fff8e6] px-4 py-3 text-sm text-[#0B2A5B]">
+            <p>Your shop is hidden until you add a WhatsApp number for orders. · دكانك مخفي لحد ما تضيف رقم واتساب للطلبات.</p>
+            <Link to="/seller" search={{ tab: "edit" }} className="mt-2 inline-flex h-11 items-center rounded-md bg-ink px-4 font-semibold text-cream">Add WhatsApp · أضف واتساب</Link>
+          </div>
+        )}
         <p className="stall-kicker">{[catLabel, area].filter(Boolean).join(" · ")}</p>
         <h1 id="shop-name" className="stall-sign">
           {name}

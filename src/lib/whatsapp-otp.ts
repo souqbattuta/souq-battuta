@@ -71,3 +71,24 @@ export async function sendWhatsAppCode(phone: string, code: string): Promise<Sen
   if (twilio) return twilio;
   return { ok: false, error: "unconfigured" };
 }
+
+export async function sendWhatsAppNotice(phone: string, text: string) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM;
+  if (!sid || !token || !from) return;
+  const sender = from.startsWith("whatsapp:") ? from : `whatsapp:${from}`;
+  const body = new URLSearchParams({
+    To: `whatsapp:+${digits(phone)}`,
+    From: sender,
+    Body: text.slice(0, 400),
+  });
+  await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  }).catch(() => undefined);
+}

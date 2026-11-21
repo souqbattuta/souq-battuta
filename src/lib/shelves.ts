@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import { CATEGORIES, type Shop } from "./data.ts";
+import { CATEGORIES, SHOP_WHATSAPP, type Shop } from "./data.ts";
 
 const CATEGORY_WORDS: Record<string, [string, string]> = {
   food: ["food", "طعام"],
@@ -115,8 +115,13 @@ export function isDemoShop(shop: { demo?: boolean }) {
   return shop.demo === true;
 }
 
+/** A shop buyers can open. Demo stalls stay in the code and show only when that flag is turned off on purpose. */
+export function isPublishable(shop: { phone?: string; demo?: boolean }) {
+  return shop.demo !== true && SHOP_WHATSAPP.test(String(shop.phone ?? "").trim());
+}
+
 /** Production and preview both drop demo shops. Old aisle ids are skipped by the caller, not rewritten. */
-export function buyerVisibleShops<T extends { demo?: boolean; offAisle?: boolean }>(shops: T[], _production: boolean) {
+export function buyerVisibleShops<T extends { demo?: boolean; offAisle?: boolean; phone?: string }>(shops: T[], _production: boolean) {
   return shops.filter((shop) => !isDemoShop(shop));
 }
 

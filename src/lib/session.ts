@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { HELLO_CAP, HELLO_EDIT, HELLO_WINDOW, billedLength, normalizeHandles, toHandle } from "./hello";
 import { effectivePlan, helloKeep } from "./hello-archive";
-import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, buyerVisibleShops, hasWord, shopMuted, shopText } from "./shelves";
+import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, builtInKeywords, buyerVisibleShops, hasWord, isPublishable, shopMuted, shopText } from "./shelves";
 export type BookmarkList = any;
 export type BuyerAccount = any;
 export type FollowedList = any;
@@ -15,7 +15,7 @@ export type StallSocial = any;
 export type SellerListing = any;
 import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
-import { PLANS, SHOPS, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
+import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
@@ -162,6 +162,10 @@ function isValidArabPhone(raw: any) {
 }
 function isValidJoPhone(raw: any) {
   return /^\+9627\d{8}$/.test(normalizePhone(raw));
+}
+function isShopWhatsapp(raw: any) {
+  const phone = normalizePhone(raw);
+  return isValidJoPhone(phone) && SHOP_WHATSAPP.test(phone);
 }
 function sellerWhatsapp(account: any) {
   const raw = String(account?.whatsappPhone ?? "").trim();
@@ -352,6 +356,7 @@ function directoryShops(accounts: any): Shop[] {
   const ids = new Set<string>();
   for (const shop of [...remoteShops, ...extras, ...SHOPS]) {
     if (!shop?.slug || ids.has(shop.slug)) continue;
+    if (!isPublishable(shop)) continue;
     ids.add(shop.slug);
     catalog.push(shop);
   }
@@ -1510,13 +1515,12 @@ const useSession = create<any>()(
         if (!user || !account) return { ok: false, error: "auth" };
         let whatsappPhone = account.whatsappPhone;
         if (patch.whatsapp !== void 0) {
-          const raw = patch.whatsapp.trim();
-          if (!raw) whatsappPhone = void 0;
-          else {
-            const next2 = normalizePhone(raw);
-            if (!isValidJoPhone(next2)) return { ok: false, error: "phone" };
-            whatsappPhone = next2;
-          }
+          const raw = String(patch.whatsapp ?? "").trim();
+          const next2 = raw ? normalizePhone(raw) : "";
+          if (!isShopWhatsapp(next2)) return { ok: false, error: "whatsapp", message: WHATSAPP_REQUIRED };
+          const current = account.whatsappPhone ? normalizePhone(account.whatsappPhone) : "";
+          if (!patch.confirmed && next2 !== current) return { ok: false, error: "otp" };
+          whatsappPhone = next2;
         }
         const next = { ...account, whatsappPhone, displayName: patch.displayName?.trim() || account.displayName };
         set({ user: toUser(next), accounts: { ...get().accounts, [user.phone]: next } });
@@ -2155,6 +2159,7 @@ export {
   directoryShops,
   isValidArabPhone,
   isValidJoPhone,
+  isShopWhatsapp,
   isValidSellerUsername,
   isValidUsername,
   livePromotions,

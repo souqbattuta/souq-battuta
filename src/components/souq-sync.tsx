@@ -46,6 +46,19 @@ export function SouqSync() {
         if (PRIVATE.includes(key)) continue;
         body[key] = value;
       }
+      if (typeof body.whatsappPhone === "string") {
+        const text = body.whatsappPhone.trim().replace(/[\s().-]/g, "");
+        const digits = text.startsWith("+") ? text.slice(1).replace(/\D/g, "") : text.replace(/\D/g, "");
+        const whatsapp = /^9620?7\d{8}$/.test(digits)
+          ? `+962${digits.slice(-9)}`
+          : /^07\d{8}$/.test(digits)
+            ? `+962${digits.slice(1)}`
+            : /^7\d{8}$/.test(digits)
+              ? `+962${digits}`
+              : "";
+        if (!/^\+9627[789]\d{7}$/.test(whatsapp)) delete body.whatsappPhone;
+        else body.whatsappPhone = whatsapp;
+      }
       if (Array.isArray(body.categories)) {
         const launch = new Set(["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"]);
         body.categories = (body.categories as unknown[]).filter((id) => typeof id === "string" && launch.has(id)).slice(0, 2);

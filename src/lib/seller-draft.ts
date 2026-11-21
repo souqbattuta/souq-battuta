@@ -12,6 +12,7 @@ export type SellerDraft = {
   areaLat?: number;
   areaLng?: number;
   categories: CategoryId[];
+  whatsappPhone?: string;
   plan?: PlanId;
   billingPeriod?: "monthly" | "yearly";
   paymentMethod?: "free" | "cliq" | "card";

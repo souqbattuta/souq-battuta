@@ -1,6 +1,10 @@
 import { EXTRA_SHOPS } from "./extra-stalls.ts";
 import { FREE_TIER_ENABLED } from "./runtime-flags.ts";
 
+/** Shop WhatsApp: Jordan mobile 077, 078, or 079 in E.164. */
+export const SHOP_WHATSAPP = /^\+9627[789]\d{7}$/;
+export const WHATSAPP_REQUIRED = "Add a valid Jordan WhatsApp number (07…) · أضف رقم واتساب أردني صحيح (07…)";
+
 export type PlanId = "free" | "basic" | "pro" | "premium";
 
 export function normalizePlan(plan: string | null | undefined): PlanId {
@@ -818,6 +822,7 @@ function openedStamp(since?: string) {
 
 for (const shop of SHOPS) {
   if (!shop.createdAt) shop.createdAt = openedStamp(shop.since);
+  if (!SHOP_WHATSAPP.test(shop.phone)) shop.demo = true;
 }
 
 export function shopBySlug(slug: string) {

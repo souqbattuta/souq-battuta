@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
 import { shopBySlug, isSellerCategory, type Shop } from "@/lib/data";
 import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, sellerWhatsapp, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
+import { isPublishable } from "@/lib/shelves";
 import { Shell } from "@/components/site-header";
 import { ShopView } from "@/components/shop-page";
 
@@ -100,15 +101,17 @@ export function ShopPage({ slug }: { slug: string }) {
     ensureDirectory();
   }, [ensureDirectory]);
   const viewer = useSession((s) => s.user?.shopSlug);
+  const viewerPhone = useSession((s) => s.user?.phone);
+  const owns = Boolean(viewer === slug || (viewerPhone && sellerByPublicSlug(slug, accounts)?.phone === viewerPhone));
   useEffect(() => {
-    if (!shop || viewer === slug || typeof window === "undefined") return;
+    if (!shop || !owns && !isPublishable(shop) || viewer === slug || typeof window === "undefined") return;
     noteVisit(slug);
     const key = `viewed:${slug}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, "1");
     bumpStallViews(slug);
-  }, [bumpStallViews, noteVisit, shop, slug, viewer]);
-  if (!shop || shop.demo) {
+  }, [bumpStallViews, noteVisit, owns, shop, slug, viewer]);
+  if (!shop || shop.demo || (!owns && !isPublishable(shop))) {
     return (
       <Shell>
         <main className="px-6 py-16">

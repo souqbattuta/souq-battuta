@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
-import { billingPhase, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
+import { PLANS, WHATSAPP_REQUIRED, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
+import { billingPhase, isShopWhatsapp, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
@@ -12,6 +12,7 @@ import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { builtInKeywords } from "@/lib/shelves";
+import { confirmWhatsappChange, requestWhatsappChange } from "@/lib/souq-sync";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
 type DraftOption = { en: string; ar: string; extra: string; off: boolean; reason: "" | "unavailable" | "stock" | "sold"; back: string };
@@ -95,6 +96,8 @@ function SellerDesk() {
   const [hideBack, setHideBack] = useState<"" | "soon" | "date">("");
   const [hideDate, setHideDate] = useState("");
   const [contactError, setContactError] = useState("");
+  const [waPending, setWaPending] = useState("");
+  const [waCode, setWaCode] = useState("");
   const [stallName, setStallName] = useState(user?.displayName || "");
   const [aboutEn, setAboutEn] = useState("");
   const [aboutAr, setAboutAr] = useState("");
@@ -326,6 +329,12 @@ function SellerDesk() {
             {ar ? "مكتب العمل" : "Workstation"}
           </button>
         </div>
+        {!isShopWhatsapp(user?.whatsappPhone) && (
+          <div className="mt-4 rounded-md border-2 border-[#FFB705] bg-[#fff8e6] px-4 py-3 text-sm text-[#0B2A5B]">
+            <p>Your shop is hidden until you add a WhatsApp number for orders. · دكانك مخفي لحد ما تضيف رقم واتساب للطلبات.</p>
+            <button type="button" className="mt-2 inline-flex h-11 items-center rounded-md bg-ink px-4 font-semibold text-cream" onClick={() => { setPhoneTab("shop"); setEditPane("about"); chooseTab("edit"); window.setTimeout(() => document.getElementById("shop-whatsapp")?.focus(), 0); }}>Add WhatsApp · أضف واتساب</button>
+          </div>
+        )}
         <section className="mt-4 rounded-xl border border-line bg-cream p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -368,7 +377,7 @@ function SellerDesk() {
           ar={ar}
           show={phoneTab === "today"}
           about={Boolean((account?.stallBio || "").trim())}
-          whatsapp={Boolean(user.whatsappPhone && /^\+9627\d{8}$/.test(user.whatsappPhone))}
+          whatsapp={isShopWhatsapp(user.whatsappPhone)}
           hours={Boolean(account?.stallOpens && account?.stallCloses)}
           item={mine.length > 0}
           onAbout={() => { setPhoneTab("shop"); setEditPane("about"); chooseTab("edit"); }}
@@ -461,9 +470,25 @@ function SellerDesk() {
                     return;
                   }
                   const fd = new FormData(event.currentTarget);
-                  const res = setSellerContact({ displayName: name, whatsapp: String(fd.get("whatsapp") ?? "") });
+                  const entered = String(fd.get("whatsapp") ?? "");
+                  const res = setSellerContact({ displayName: name, whatsapp: entered });
+                  if (!res.ok && res.error === "otp") {
+                    void requestWhatsappChange({ data: { phone: entered } }).then((sent) => {
+                      if (!sent.ok) {
+                        setContactError(sent.error === "rate" || sent.error === "cooldown" ? (ar ? "انتظر قليلاً ثم أعد المحاولة." : "Wait a moment, then try again.") : sent.message || WHATSAPP_REQUIRED);
+                        return;
+                      }
+                      setWaPending(sent.phone);
+                      setContactError(ar ? "أرسلنا رمزاً للرقم الجديد. الرقم القديم يبقى شغّال لين تتأكد." : "We sent a code to the new number. The old number stays live until you confirm.");
+                    });
+                    return;
+                  }
+                  if (!res.ok) {
+                    setContactError("message" in res ? res.message || WHATSAPP_REQUIRED : WHATSAPP_REQUIRED);
+                    return;
+                  }
                   setStall({ stallBio: aboutEn, stallBioAr: aboutAr });
-                  setContactError(res.ok ? "" : ar ? "تحقق من الرقم." : "Check the WhatsApp number.");
+                  setContactError("");
                 }}
               >
                 <label className="text-sm">
@@ -477,7 +502,34 @@ function SellerDesk() {
                         : ar ? "متاح." : "Available."}
                   </span>
                 </label>
-                <label className="text-sm">{ar ? "واتساب" : "WhatsApp"}<input name="whatsapp" defaultValue={user.whatsappPhone || user.phone} className="mt-1 h-11 w-full rounded-md border border-line px-3" /></label>
+                <label className="text-sm" htmlFor="shop-whatsapp">WhatsApp number for orders · رقم واتساب للطلبات
+                  <input id="shop-whatsapp" name="whatsapp" required placeholder="07XXXXXXXX" defaultValue={user.whatsappPhone || user.phone} className="mt-1 h-11 w-full rounded-md border border-line px-3" />
+                </label>
+                {waPending && (
+                  <div className="grid gap-2">
+                    <label className="text-sm">{ar ? "رمز الرقم الجديد" : "Code for the new number"}
+                      <input value={waCode} onChange={(event) => setWaCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" className="mt-1 h-11 w-full rounded-md border border-line px-3" />
+                    </label>
+                    <button
+                      type="button"
+                      className="h-11 rounded-md bg-ink font-semibold text-cream"
+                      onClick={() => {
+                        void confirmWhatsappChange({ data: { phone: waPending, code: waCode } }).then((saved) => {
+                          if (!saved.ok) {
+                            setContactError(saved.message || (ar ? "الرمز غير صحيح." : "That code is not right."));
+                            return;
+                          }
+                          setSellerContact({ whatsapp: saved.phone, confirmed: true });
+                          setWaPending("");
+                          setWaCode("");
+                          setContactError("");
+                        });
+                      }}
+                    >
+                      {ar ? "تأكيد الرقم" : "Confirm number"}
+                    </button>
+                  </div>
+                )}
                 <label className="text-sm">
                   {ar ? "نبذة" : "About"}
                   <textarea value={aboutEn} maxLength={TEXT_CAP[planId]} onChange={(event) => setAboutEn(event.target.value)} rows={3} className="mt-1 w-full rounded-md border border-line px-3 py-2" />
