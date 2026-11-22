@@ -275,7 +275,6 @@ export const OFFERED_PLANS: PlanId[] = FREE_TIER_ENABLED ? ["free", "basic", "pr
 export const PLAN_TOOLS: { id: string; en: string; ar: string; plans: PlanId[]; live: boolean }[] = [
   { id: "multi-photo", en: "Pick several photos at once", ar: "اختيار عدة صور مرة واحدة", plans: ["free", "basic", "pro", "premium"], live: false },
   { id: "duplicate", en: "Duplicate an item", ar: "نسخ صنف", plans: ["free", "basic", "pro", "premium"], live: false },
-  { id: "quick-replies", en: "Order quick replies", ar: "ردود سريعة على الطلب", plans: ["free", "basic", "pro", "premium"], live: false },
 ];
 
 export function isSellerCategory(id: string): id is Exclude<CategoryId, "all"> {
