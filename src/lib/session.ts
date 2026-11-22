@@ -494,6 +494,11 @@ function usernameTaken(name: any, accounts: any, exceptPhone: any, now = Date.no
     return (account.heldUsernames ?? []).some((held: any) => held.until > now && nameKey(held.name) === key);
   });
 }
+function clipOrderName(text: string) {
+  const chars = Array.from(text.trim());
+  if (chars.length <= 120) return chars.join("");
+  return `${chars.slice(0, 119).join("")}…`;
+}
 function toUser(account: any) {
   return {
     phone: account.phone,
@@ -1024,19 +1029,20 @@ const useSession = create<any>()(
       },
       placeOrder: (order: any) => {
         const id = `o-${Date.now()}`;
-        const saved = { ...order, buyerPhone: get().user?.phone, id, at: Date.now(), reviewed: false, status: "new" };
+        const productName = clipOrderName(String(order.productName ?? ""));
+        const saved = { ...order, productName, buyerPhone: get().user?.phone, id, at: Date.now(), reviewed: false, status: "new" };
         const notes = [
           {
             id: `n-${Date.now()}`,
             title: `Review ${order.shopName}`,
-            body: `You asked about ${order.productName}${order.addressName ? ` \xB7 ${order.addressName}` : ""}.`,
+            body: `You asked about ${productName}${order.addressName ? ` \xB7 ${order.addressName}` : ""}.`,
             href: `/shop/${order.shopSlug}`,
             at: Date.now()
           },
           ...get().notes
         ];
         withBuyer(get, set, { orders: [saved, ...get().orders], notes });
-        void placeSouqOrder({ data: { shopSlug: order.shopSlug, productName: order.productName, addressName: order.addressName } });
+        return placeSouqOrder({ data: { shopSlug: order.shopSlug, productName, addressName: order.addressName } });
       },
       voteReview: (key: any, vote: any) => {
         const phone = get().user?.phone;

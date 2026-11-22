@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
-import { formatJod, type Product, type Shop } from "@/lib/data";
+import { formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
 
@@ -30,7 +30,7 @@ function OrderText({ text }: { text: string }) {
   );
 }
 
-type OrderLine = { product: Product; qty: number; note?: string; detail?: string };
+type OrderLine = { product: Product; qty: number; note?: string; detail?: string; lineTotal?: number | null };
 type PickedAddress = { name: string; line?: string; lat?: number; lng?: number };
 
 export function WhatsAppCta({
@@ -43,6 +43,9 @@ export function WhatsAppCta({
   lockAddress = false,
   deliveryFee = null,
   fulfillment = "delivery",
+  preview = false,
+  onEdit,
+  onSent,
 }: {
   shop: Shop;
   product: Product;
@@ -53,6 +56,9 @@ export function WhatsAppCta({
   lockAddress?: boolean;
   deliveryFee?: { label: string; amount: number | null } | null;
   fulfillment?: "delivery" | "pickup";
+  preview?: boolean;
+  onEdit?: () => void;
+  onSent?: () => void;
 }) {
   const lang = useSession((s) => s.lang);
   const user = useSession((s) => s.user);
@@ -60,13 +66,14 @@ export function WhatsAppCta({
   const placeOrder = useSession((s) => s.placeOrder);
   const recordWa = useSession((s) => s.recordWa);
   const t = copy[lang];
-  const [step, setStep] = useState<"idle" | "confirm" | "wa">("idle");
+  const [step, setStep] = useState<"idle" | "confirm" | "wa">(preview ? "confirm" : "idle");
   const [addressId, setAddressId] = useState("");
   const [live, setLive] = useState<{ lat: number; lng: number } | null>(null);
   const [locNote, setLocNote] = useState("");
+  const [sending, setSending] = useState(false);
 
   const digits = waDigits(shop.phone);
-  if (!digits) return null;
+  if (!digits && !preview) return null;
 
   if (!user) {
     return (
@@ -81,7 +88,11 @@ export function WhatsAppCta({
   }
 
   const lines = (items ?? [{ product, qty }]).filter((line) => line.qty > 0);
-  const itemsTotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0);
+  const itemsTotal = lines.reduce((sum, line) => {
+    if (line.lineTotal != null) return sum + line.lineTotal;
+    if (line.product.priceMode && line.product.priceMode !== "price") return sum;
+    return sum + line.product.price * line.qty;
+  }, 0);
   const grand = itemsTotal + (deliveryFee?.amount ?? 0);
   const picked = lockAddress ? addressPick : addresses.find((item) => item.id === addressId) ?? null;
   const pin =
@@ -96,7 +107,9 @@ export function WhatsAppCta({
     .map((line) => {
       const label = lang === "ar" ? line.product.nameAr : line.product.name;
       const note = line.note?.trim();
-      const row = mode === "inquire" ? `${label} — ${formatJod(line.product.price)}` : `${line.qty} × ${label}${line.detail ? ` (${line.detail})` : ""} — ${formatJod(line.product.price * line.qty)}`;
+      const priced = !line.product.priceMode || line.product.priceMode === "price";
+      const amount = line.lineTotal != null ? formatJod(line.lineTotal) : priced ? formatJod(line.product.price * line.qty) : priceLabel(line.product, lang);
+      const row = `${line.qty} × ${label}${line.detail ? ` (${line.detail})` : ""} — ${amount}`;
       return note ? `${row}\n*** ● ${note} ● ***` : row;
     })
     .join("\n");
@@ -123,17 +136,25 @@ export function WhatsAppCta({
   ].join("\n");
   const photos = lines.map((line) => line.product.images[0]).filter(Boolean).slice(0, 3);
 
-  function sendBoth() {
+  async function sendBoth() {
+    if (sending) return;
+    setSending(true);
     const phone = digits;
-    placeOrder({
-      shopSlug: shop.slug,
-      shopName: shop.name,
-      productName: lines.map((line) => `${line.qty} × ${line.product.name}${line.detail ? ` (${line.detail})` : ""}`).join(", "),
-      addressName,
-      total: grand,
-    });
-    recordWa(shop.slug);
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(orderMessage)}`, "_blank", "noopener");
+    const productName = lines.map((line) => `${line.qty} × ${line.product.name}`).join(", ");
+    try {
+      await placeOrder({
+        shopSlug: shop.slug,
+        shopName: shop.name,
+        productName,
+        addressName,
+        total: grand,
+      });
+      recordWa(shop.slug);
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(orderMessage)}`, "_blank", "noopener");
+      onSent?.();
+    } finally {
+      setSending(false);
+    }
   }
 
   if (step === "wa") {
@@ -220,21 +241,25 @@ export function WhatsAppCta({
             {locNote && <p className="mt-1 text-xs text-red">{locNote}</p>}
           </label>
         )}
+        <p className="mt-3 text-sm text-ink">This goes to the shop’s own WhatsApp. · تروح الرسالة على واتساب المحل مباشرة.</p>
         <div className="mt-3 flex gap-2">
           <button
             type="button"
             className="h-12 flex-1 rounded-md bg-sand font-semibold text-ink"
-            onClick={() => setStep("idle")}
+            onClick={() => (onEdit ? onEdit() : setStep("idle"))}
           >
-            {t.editOrder}
+            {lang === "ar" ? "عدّل الطلب" : "Edit order"}
           </button>
+          {digits && (
           <button
             type="button"
-            className="h-12 flex-1 rounded-md bg-wa font-semibold text-white"
-            onClick={sendBoth}
+            className="h-12 flex-1 rounded-md bg-wa font-semibold text-white disabled:opacity-50"
+            disabled={sending}
+            onClick={() => void sendBoth()}
           >
-            {t.sendOrder}
+            {lang === "ar" ? "أكّد وافتح واتساب" : "Confirm & open WhatsApp"}
           </button>
+          )}
         </div>
       </div>
     );

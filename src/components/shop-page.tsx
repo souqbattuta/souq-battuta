@@ -643,8 +643,11 @@ function PublicStall({ shop }: { shop: Shop }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"menu" | "inquire" | "reviews" | "hello" | "top">("menu");
   const [sectionKey, setSectionKey] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [chosen, setChosen] = useState<Record<string, number[]>>({});
+  const [draft, setDraft] = useState<{ id: string; qty: number; note: string; picks: number[] } | null>(null);
+  const [preview, setPreview] = useState(false);
   const [tops, setTops] = useState<{ id: string; name: string; score: number }[]>([]);
   const [videoOn, setVideoOn] = useState(false);
   const open = displayOpen(shop);
@@ -663,10 +666,31 @@ function PublicStall({ shop }: { shop: Shop }) {
   const helloPost = posts[0];
   const newest = shop.reviews?.[shop.reviews.length - 1];
   const mode = shop.plan === "premium" || shop.plan === "pro" ? "invoice" : "inquire";
-  const askQty = Boolean(shop.askQty);
   const lines = shop.products
-    .map((product) => ({ product, qty: askQty ? counts[product.id] ?? 0 : picked.includes(product.id) ? 1 : 0 }))
+    .filter((product) => !product.paused && !product.hideReason)
+    .map((product) => {
+      const qty = counts[product.id] ?? 0;
+      const picks = chosen[product.id];
+      const priced = !product.priceMode || product.priceMode === "price";
+      return {
+        product,
+        qty,
+        note: notes[product.id]?.trim() || "",
+        detail: choiceLabel(product, picks, ui.lang),
+        lineTotal: priced ? (product.price + choiceExtra(product, picks)) * qty : null,
+      };
+    })
     .filter((line) => line.qty > 0);
+  const itemCount = lines.reduce((sum, line) => sum + line.qty, 0);
+  const orderTotal = lines.reduce((sum, line) => sum + (line.lineTotal ?? 0), 0);
+  const priceOnRequest = lines.some((line) => line.lineTotal == null);
+  useEffect(() => {
+    setCounts({});
+    setNotes({});
+    setChosen({});
+    setDraft(null);
+    setPreview(false);
+  }, [shop.slug]);
   useEffect(() => {
     let stop = false;
     void shopTopItems({ data: { slug: shop.slug } }).then((res) => {
@@ -822,23 +846,30 @@ function PublicStall({ shop }: { shop: Shop }) {
             ))}
           </div>
         ) : (
-          <div className="mt-4 space-y-3">
-            {shown.flatMap((group) => group.items).map((product) => {
-              const on = askQty ? (counts[product.id] ?? 0) > 0 : picked.includes(product.id);
+          <div className="order-list">
+            {shown.map((group) => {
+              const items = group.items.filter((product) => !product.paused && !product.hideReason);
+              if (!items.length) return null;
               return (
-                <button key={product.id} type="button" className={cn("flex w-full items-center gap-3 rounded-xl border p-3 text-start", on ? "border-ink bg-sand" : "border-line bg-cream")} onClick={() => {
-                  if (askQty) setCounts((c) => ({ ...c, [product.id]: (c[product.id] ?? 0) > 0 ? 0 : 1 }));
-                  else setPicked((ids) => (on ? ids.filter((id) => id !== product.id) : [...ids, product.id]));
-                }}>
-                  <OptImg src={product.images[0]} alt="" className="size-14 rounded-md object-cover" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold">{ar ? product.nameAr : product.name}</span>
-                    <span className="text-sm">{priceLabel(product, ui.lang)}</span>
-                  </span>
-                </button>
+                <section key={group.key || "menu"}>
+                  {group.title && <h3 className="order-group">{ar ? group.titleAr || group.title : group.title}</h3>}
+                  <ul>
+                    {items.map((product) => (
+                      <OrderLine
+                        key={product.id}
+                        product={product}
+                        lang={ui.lang}
+                        qty={counts[product.id] ?? 0}
+                        note={notes[product.id]}
+                        onOpen={() => setDraft({ id: product.id, qty: counts[product.id] ?? 1, note: notes[product.id] ?? "", picks: chosen[product.id] ?? defaultPicks(product) })}
+                        onInc={() => setCounts((c) => ({ ...c, [product.id]: (c[product.id] ?? 0) + 1 }))}
+                        onDec={() => setCounts((c) => ({ ...c, [product.id]: Math.max(0, (c[product.id] ?? 0) - 1) }))}
+                      />
+                    ))}
+                  </ul>
+                </section>
               );
             })}
-            {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={shop.plan === "premium" || shop.plan === "pro" ? "invoice" : "inquire"} />}
           </div>
         )}
         <section className="stall-reviews">
@@ -869,9 +900,23 @@ function PublicStall({ shop }: { shop: Shop }) {
           <button type="button" onClick={() => ui.setReportOn(true)}>{t.report}</button>
         </div>
         {(open !== false || shop.contactWhenClosed !== false) && shop.products[0] && (
-          <div className="stall-order-bar">
-            {tab === "inquire" && lines[0] ? (
-              <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={mode} />
+          <div className={cn("stall-order-bar", tab === "inquire" && itemCount > 0 && "is-total")}>
+            {tab === "inquire" && itemCount > 0 ? (
+              <>
+                <div className="order-total-copy">
+                  <p>{itemCount} items · {itemCount} أصناف</p>
+                  <b>{formatJod(orderTotal)}</b>
+                  {priceOnRequest && <span>+ price on request</span>}
+                </div>
+                {!user ? (
+                  <Link to="/sign-in" search={{ next: `/shop/${shop.slug}` }}>{t.loginToContact}</Link>
+                ) : user.role === "seller" && !ui.own ? null : (shop.phone ?? "").replace(/\D/g, "").length >= 8 ? (
+                  <button type="button" onClick={() => setPreview(true)}>
+                    <i />
+                    Send via WhatsApp · أرسل عبر واتساب
+                  </button>
+                ) : null}
+              </>
             ) : (
               <button type="button" onClick={() => setTab("inquire")}>
                 <i />
@@ -881,6 +926,41 @@ function PublicStall({ shop }: { shop: Shop }) {
           </div>
         )}
       </main>
+      {draft && (
+        <OrderDraft
+          shop={shop}
+          draft={draft}
+          lang={ui.lang}
+          onClose={() => {
+            const id = draft.id;
+            setDraft(null);
+            window.setTimeout(() => document.getElementById(`order-row-${id}`)?.querySelector("button")?.focus(), 0);
+          }}
+          onSave={(next) => {
+            setCounts((c) => ({ ...c, [next.id]: next.qty }));
+            setNotes((n) => ({ ...n, [next.id]: next.note }));
+            setChosen((c) => ({ ...c, [next.id]: next.picks }));
+            setDraft(null);
+            window.setTimeout(() => document.getElementById(`order-row-${next.id}`)?.querySelector("button")?.focus(), 0);
+          }}
+        />
+      )}
+      {preview && lines[0] && (
+        <OrderPreview
+          shop={shop}
+          name={name}
+          lines={lines}
+          mode={mode}
+          onClose={() => setPreview(false)}
+          onSent={() => {
+            setPreview(false);
+            setCounts({});
+            setNotes({});
+            setChosen({});
+            setDraft(null);
+          }}
+        />
+      )}
       {videoOn && video && (
         <div className="stall-video" role="dialog">
           <button type="button" onClick={() => setVideoOn(false)}>×</button>
@@ -1058,1088 +1138,185 @@ function MenuTile({
 function OrderLine({
   product,
   lang,
-  sellerName,
   qty,
+  note,
   onOpen,
-  onAdd,
-  onNotify,
-  watching,
+  onInc,
+  onDec,
 }: {
   product: Product;
   lang: "en" | "ar";
-  sellerName: string;
   qty: number;
+  note?: string;
   onOpen: () => void;
-  onAdd: () => void;
-  onNotify?: () => void;
-  watching?: boolean;
+  onInc: () => void;
+  onDec: () => void;
 }) {
   const name = lang === "ar" ? product.nameAr : product.name;
   return (
-    <li id={`item-${product.id}`} className="flex items-center gap-3 px-3 py-2.5">
-      <button type="button" className="photo-open shrink-0" aria-label={photoControlName(lang, sellerName, name)} onClick={onOpen}>
-        <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" className="size-14 rounded-md object-cover" />
+    <li id={`order-row-${product.id}`} className={cn("order-row", qty > 0 && "is-on")}>
+      <button type="button" className="order-row-main" onClick={onOpen}>
+        <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" className="order-row-photo" />
+        <span className="min-w-0">
+          <b>{name}</b>
+          <span className="order-row-price">{priceLabel(product, lang)}</span>
+          {note?.trim() && <span className="order-row-note">“{note.trim()}”</span>}
+        </span>
       </button>
-      <button type="button" className="min-w-0 flex-1 text-start" onClick={onOpen}>
-        <span className="block truncate font-display text-lg leading-tight text-ink">{name}</span>
-        <span className="text-sm font-semibold text-gold">{priceLabel(product, lang)}</span>
-        {product.paused && <span className="block text-xs text-red">{pauseText(product, lang)}</span>}
-      </button>
-      {product.paused ? (
-        <button type="button" className="h-9 shrink-0 rounded-full border border-ink px-4 text-sm font-semibold text-ink disabled:opacity-50" disabled={watching} onClick={onNotify}>
-          {watching ? (lang === "ar" ? "بنخبرك" : "We'll tell you") : lang === "ar" ? "خبرني" : "Notify me"}
-        </button>
+      {qty < 1 ? (
+        <button type="button" className="order-plus" aria-label="+" onClick={onInc}>+</button>
       ) : (
-      <button type="button" className="h-9 shrink-0 rounded-full border border-ink px-4 text-sm font-semibold text-ink hover:bg-ink hover:text-cream" onClick={onAdd}>
-        {qty > 0 ? qty : lang === "ar" ? "أضف" : "Add"}
-      </button>
+        <span className="order-step">
+          <button type="button" aria-label="−" onClick={onDec}>−</button>
+          <b>{qty}</b>
+          <button type="button" aria-label="+" onClick={onInc}>+</button>
+        </span>
       )}
     </li>
   );
 }
 
-function FreeShop({ shop }: { shop: Shop }) {
-  const ui = useShopChrome(shop);
-  const { t, name, area } = ui;
-  const [tab, setTab] = useState<"menu" | "inquire">("menu");
-  const [picked, setPicked] = useState<string[]>([]);
-  const [sectionKey, setSectionKey] = useState("");
-  const groups = menuGroups(shop.products);
-  const shown = sectionKey ? groups.filter((group) => group.key === sectionKey) : groups;
-  const lines = shop.products.filter((p) => picked.includes(p.id)).map((product) => ({ product, qty: 1 }));
-  function openItem(p: Product, index = 0) {
-    const pname = ui.lang === "ar" ? p.nameAr : p.name;
-    const pdesc = ui.lang === "ar" ? p.descAr : p.desc;
-    ui.setActive(p);
-    ui.setShot({
-      images: p.images,
-      index,
-      title: pname,
-      text: `${priceLabel(p, ui.lang)}\n${pdesc}`,
-      label: photoControlName(ui.lang, name, pname),
-    });
-  }
+function useSheetTrap(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const node = ref.current;
+    const items = () => [...(node?.querySelectorAll<HTMLElement>("button, a, input, select, textarea") ?? [])].filter((el) => !el.hasAttribute("disabled"));
+    items()[0]?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const list = items();
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  return ref;
+}
+
+function OrderDraft({
+  shop,
+  draft,
+  lang,
+  onClose,
+  onSave,
+}: {
+  shop: Shop;
+  draft: { id: string; qty: number; note: string; picks: number[] };
+  lang: "en" | "ar";
+  onClose: () => void;
+  onSave: (next: { id: string; qty: number; note: string; picks: number[] }) => void;
+}) {
+  const [local, setLocal] = useState(draft);
+  const ref = useSheetTrap(onClose);
+  const item = shop.products.find((product) => product.id === draft.id);
+  if (!item) return null;
+  const ar = lang === "ar";
+  const unit = item.price + choiceExtra(item, local.picks);
+  const priced = !item.priceMode || item.priceMode === "price";
+  const ready = picksReady(item, local.picks);
+  const lineTotal = priced ? formatJod(unit * local.qty) : priceLabel(item, lang);
   return (
-    <>
-      <TopBar t={t} shareTitle={name} shareSlug={shop.slug} shop={shop} bookmarked={ui.bookmarked} onReport={() => ui.setReportOn(true)} own={ui.own} seller={ui.seller} />
-      <main className="grid items-start gap-6 px-4 pb-16 pt-2 sm:px-8 lg:grid-cols-3">
-        <aside className="overflow-hidden rounded-xl border border-line bg-cream shadow-sm lg:sticky lg:top-4 lg:col-span-1">
-          <div className="bg-sand px-5 pb-6 pt-5">
-            <button
-              type="button"
-              className="photo-open block rounded-full"
-              aria-label={photoControlName(ui.lang, name)}
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
-            >
-              <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} alt="" className="size-28 rounded-full bg-paper object-cover ring-4 ring-cream" />
-            </button>
-          </div>
-          <div className="border-t-4 border-gold px-5 py-5">
-            <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
-            <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
-            <HoursStatus shop={shop} lang={ui.lang} />
-            {(shop.bio || shop.bioAr) && (
-              <p className="mt-4 text-sm leading-relaxed text-mute">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
-            )}
-            {!ui.own && (
-              <>
-                <p className="mt-4 font-display text-lg text-ink">{ui.lang === "ar" ? "استفسار" : "Inquiry"}</p>
-                <p className="mt-1 text-sm leading-relaxed text-mute">
-                  {ui.lang === "ar" ? "اختر من القائمة، ثم أرسل على واتساب." : "Choose from the menu, then send on WhatsApp."}
-                </p>
-              </>
-            )}
-          </div>
-        </aside>
-        <section className="lg:col-span-2">
-          {ui.own ? null : (
-          <div className="flex gap-1 rounded-xl bg-sand p-1" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "menu" ? "bg-ink text-cream" : "text-ink")}
-              onClick={() => setTab("menu")}
-            >
-              {t.menu}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "inquire" ? "bg-ink text-cream" : "text-ink")}
-              onClick={() => setTab("inquire")}
-            >
-              {t.orderInquireNow}
-            </button>
-          </div>
-          )}
-          <SectionTabs groups={groups} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
-          {tab === "menu" || ui.own ? (
-            <div className="mt-4 space-y-6">
-              {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
-              {shown.map((group) => (
-                <section key={group.key}>
-                  {group.title && !sectionKey && <h3 className="mb-3 font-display text-2xl text-ink">{ui.lang === "ar" ? group.titleAr : group.title}</h3>}
-                  <ul className="menu-grid">
-              {group.items.map((p) => (
-                  <li key={p.id} id={`item-${p.id}`}>
-                    <MenuTile
-                      product={p}
-                      lang={ui.lang}
-                      sellerName={name}
-                      own={ui.own}
-                      seller={ui.seller}
-                      loved={ui.fav(p.id)}
-                      onOpen={() => openItem(p, 0)}
-                      onLove={() => ui.toggleFavorite(p.id)}
-                    />
-                  </li>
-              ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {shown.flatMap((group) => group.items).map((p) => {
-                const pname = ui.lang === "ar" ? p.nameAr : p.name;
-                const on = picked.includes(p.id);
+    <div className="order-sheet" onClick={onClose}>
+      <div ref={ref} className="order-sheet-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="order-handle" aria-hidden="true" />
+        <button type="button" className="order-x" aria-label={ar ? "إغلاق" : "Close"} onClick={onClose}>×</button>
+        <OptImg src={item.images[0] || "/brand/avatars/default-duck.jpg"} alt="" className="order-photo" />
+        <h3>{ar ? item.nameAr : item.name}</h3>
+        {item.nameAr && item.nameAr !== item.name && <p className="order-ar" dir="rtl" lang="ar">{item.nameAr}</p>}
+        <p className="order-price">{priced ? formatJod(unit) : priceLabel(item, lang)}</p>
+        {(item.choices ?? []).map((choice, index) => (
+          <div key={`${choice.en}-${index}`} className="mt-4">
+            <p className="text-sm font-semibold">{choiceLabelHeading(choice, ar)}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {choice.options.map((option, optionIndex) => {
+                const on = local.picks[index] === optionIndex;
                 return (
                   <button
-                    key={p.id}
+                    key={`${option.en}-${optionIndex}`}
                     type="button"
-                    aria-pressed={on}
-                    onClick={() => setPicked((ids) => (on ? ids.filter((id) => id !== p.id) : [...ids, p.id]))}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl border p-3 text-start shadow-sm",
-                      on ? "border-ink bg-sand" : "border-line bg-cream",
-                    )}
+                    disabled={option.off}
+                    className={cn("h-9 rounded-full px-3 text-sm", option.off ? "border border-line text-mute line-through" : on ? "bg-ink text-cream" : "border border-line bg-white")}
+                    onClick={() => setLocal({ ...local, picks: local.picks.map((pick, pickIndex) => (pickIndex === index ? optionIndex : pick)) })}
                   >
-                    <span className={cn("grid size-6 shrink-0 place-items-center rounded-sm border text-xs", on ? "border-ink bg-ink text-cream" : "border-line bg-paper")}>
-                      {on ? "✓" : ""}
-                    </span>
-                    <OptImg src={p.images[0]} alt="" className="size-16 rounded-md object-cover ring-1 ring-line" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-display text-xl text-ink">{pname}</span>
-                      <span className="text-sm font-semibold text-gold">{priceLabel(p, ui.lang)}</span>
-                    </span>
+                    {ar ? option.ar || option.en : option.en}
+                    {option.off ? ` · ${optionNote(option, ar)}` : option.extra ? ` +${option.extra}` : ""}
                   </button>
                 );
               })}
-              {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode="inquire" />}
             </div>
-          )}
-        </section>
-      </main>
-      <PhotoFrame shot={ui.shot} onClose={() => ui.setShot(null)} />
-      <ReportNote on={ui.reportOn} onClose={() => ui.setReportOn(false)} />
-    </>
-  );
-}
-
-function BasicShop({ shop }: { shop: Shop }) {
-  const ui = useShopChrome(shop);
-  const { t, name, area } = ui;
-  const [tab, setTab] = useState<"menu" | "inquire">("menu");
-  const [picked, setPicked] = useState<string[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [sectionKey, setSectionKey] = useState("");
-  const groups = menuGroups(shop.products);
-  const shown = sectionKey ? groups.filter((group) => group.key === sectionKey) : groups;
-  const askQty = !!shop.askQty;
-  const canMessage = shop.isOpen !== false || shop.contactWhenClosed !== false;
-  const lines = askQty
-    ? shop.products.map((product) => ({ product, qty: counts[product.id] ?? 0 })).filter((line) => line.qty > 0)
-    : shop.products.filter((p) => picked.includes(p.id)).map((product) => ({ product, qty: 1 }));
-  const total = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0);
-  function openItem(p: Product, index = 0) {
-    const pname = ui.lang === "ar" ? p.nameAr : p.name;
-    const pdesc = ui.lang === "ar" ? p.descAr : p.desc;
-    ui.setActive(p);
-    ui.setShot({ images: p.images, index, title: pname, text: `${priceLabel(p, ui.lang)}\n${pdesc}`, label: photoControlName(ui.lang, name, pname) });
-  }
-  return (
-    <>
-      <TopBar t={t} shareTitle={name} shareSlug={shop.slug} shop={shop} bookmarked={ui.bookmarked} onReport={() => ui.setReportOn(true)} own={ui.own} seller={ui.seller} />
-      {(shop.cover || shop.avatar) && (
-        <div className="px-4 sm:px-8">
-          <button
-            type="button"
-            className="photo-open relative block h-40 w-full overflow-hidden rounded-xl border border-line sm:h-52"
-            aria-label={photoControlName(ui.lang, name)}
-            onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
-          >
-            <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
-          </button>
-        </div>
-      )}
-      <main className="grid items-start gap-6 px-4 pb-16 pt-6 sm:px-8 lg:grid-cols-3">
-        <aside className="overflow-hidden rounded-xl border border-line bg-cream shadow-sm lg:sticky lg:top-4 lg:col-span-1">
-          <div className="bg-sand px-5 pb-6 pt-5">
-            <button
-              type="button"
-              className="photo-open block rounded-full"
-              aria-label={photoControlName(ui.lang, name)}
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
-            >
-              <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} alt="" className="size-28 rounded-full bg-paper object-cover ring-4 ring-cream" />
-            </button>
           </div>
-          <div className="border-t-4 border-gold px-5 py-5">
-            <div className="flex items-center gap-2">
-              <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
-              <PlanBadge plan={displayPlan("basic")} size="profile" />
-            </div>
-            <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
-            <HoursStatus shop={shop} lang={ui.lang} />
-            {(shop.views ?? 0) > 0 && (
-              <p className="mt-1 text-xs text-mute">
-                {t.views}: {shop.views!.toLocaleString()}
-              </p>
-            )}
-            {(shop.bio || shop.bioAr) && (
-              <p className="mt-4 text-sm leading-relaxed text-mute">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
-            )}
-            <SellerNameNote slug={shop.slug} />
-            {shop.socials && shop.socials.length > 0 && (
-              <div className="mt-4 flex gap-2">
-                {shop.socials.map((item) => (
-                  <SocialMark key={item.href} label={item.label} href={item.href} />
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
-        <section className="lg:col-span-2">
-          {!canMessage && !ui.own && (
-            <p className="mb-3 rounded-lg border border-line bg-sand px-4 py-3 text-sm text-mute">
-              {ui.lang === "ar" ? "مغلق الآن، والتواصل مقفل لين يفتح." : "Closed now. Contact is off until they open."}
-            </p>
-          )}
-          {ui.own || !canMessage ? null : (
-          <div className="flex gap-1 rounded-xl bg-sand p-1" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "menu" ? "bg-ink text-cream" : "text-ink")}
-              onClick={() => setTab("menu")}
-            >
-              {t.menu}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "inquire" ? "bg-ink text-cream" : "text-ink")}
-              onClick={() => setTab("inquire")}
-            >
-              {t.orderInquireNow}
-            </button>
-          </div>
-          )}
-          <SectionTabs groups={groups} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
-          {tab === "menu" || ui.own || !canMessage ? (
-            <div className="mt-4 space-y-6">
-              {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
-              {shown.map((group) => (
-                <section key={group.key}>
-                  {group.title && !sectionKey && <h3 className="mb-3 font-display text-2xl text-ink">{ui.lang === "ar" ? group.titleAr : group.title}</h3>}
-                  <ul className="menu-grid">
-              {group.items.map((p) => (
-                  <li key={p.id} id={`item-${p.id}`}>
-                    <MenuTile
-                      product={p}
-                      lang={ui.lang}
-                      sellerName={name}
-                      own={ui.own}
-                      seller={ui.seller}
-                      loved={ui.fav(p.id)}
-                      onOpen={() => openItem(p, 0)}
-                      onLove={() => ui.toggleFavorite(p.id)}
-                    />
-                  </li>
-              ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {shown.flatMap((group) => group.items).map((p) => {
-                const pname = ui.lang === "ar" ? p.nameAr : p.name;
-                const qty = counts[p.id] ?? 0;
-                const on = askQty ? qty > 0 : picked.includes(p.id);
-                return (
-                  <div
-                    key={p.id}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl border p-3 text-start shadow-sm",
-                      on ? "border-ink bg-sand" : "border-line bg-cream",
-                    )}
-                  >
-                    {askQty ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          className="size-9 rounded-md border border-line bg-paper"
-                          aria-label="Less"
-                          onClick={() => setCounts((c) => ({ ...c, [p.id]: Math.max(0, (c[p.id] ?? 0) - 1) }))}
-                        >
-                          −
-                        </button>
-                        <span className="w-6 text-center text-sm tabular-nums">{qty}</span>
-                        <button
-                          type="button"
-                          className="size-9 rounded-md border border-line bg-paper"
-                          aria-label="More"
-                          onClick={() => setCounts((c) => ({ ...c, [p.id]: (c[p.id] ?? 0) + 1 }))}
-                        >
-                          +
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        aria-pressed={on}
-                        className={cn("grid size-6 shrink-0 place-items-center rounded-sm border text-xs", on ? "border-ink bg-ink text-cream" : "border-line bg-paper")}
-                        onClick={() => setPicked((ids) => (on ? ids.filter((id) => id !== p.id) : [...ids, p.id]))}
-                      >
-                        {on ? "✓" : ""}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-3 text-start"
-                      onClick={() => {
-                        if (askQty) setCounts((c) => ({ ...c, [p.id]: (c[p.id] ?? 0) > 0 ? 0 : 1 }));
-                        else setPicked((ids) => (on ? ids.filter((id) => id !== p.id) : [...ids, p.id]));
-                      }}
-                    >
-                      <OptImg src={p.images[0]} alt="" className="size-16 rounded-md object-cover ring-1 ring-line" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-display text-xl text-ink">{pname}</span>
-                        <span className="text-sm font-semibold text-gold">{priceLabel(p, ui.lang)}</span>
-                      </span>
-                    </button>
-                  </div>
-                );
-              })}
-              {askQty && lines.length > 0 && (
-                <p className="text-end font-display text-2xl text-ink">
-                  {t.orderTotal} {formatJod(total)}
-                </p>
-              )}
-              {lines[0] && <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode="inquire" />}
-            </div>
-          )}
-        </section>
-      </main>
-      <PhotoFrame shot={ui.shot} onClose={() => ui.setShot(null)} />
-      <ReportNote on={ui.reportOn} onClose={() => ui.setReportOn(false)} />
-    </>
-  );
-}
-
-function SocialMark({ label, href }: { label: string; href: string }) {
-  const kind = label.toLowerCase();
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={label}
-      className="grid size-11 place-items-center rounded-full border border-line bg-paper text-ink hover:border-ink"
-    >
-      {kind === "instagram" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="1.7" />
-          <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.7" />
-          <circle cx="17.5" cy="6.5" r="1" fill="currentColor" />
-        </svg>
-      ) : kind === "facebook" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M14 9h3V6h-3c-2.2 0-4 1.8-4 4v2H8v3h2v7h3v-7h2.6l.4-3H13v-1c0-.6.4-1 1-1z" />
-        </svg>
-      ) : kind === "tiktok" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M14 4h2.2a5 5 0 0 0 3.8 3.6V10a7 7 0 0 1-3.8-1.1v6.2a5.6 5.6 0 1 1-5.6-5.6c.2 0 .5 0 .7.1v2.4a3.2 3.2 0 1 0 2.2 3V4Z" />
-        </svg>
-      ) : kind === "snapchat" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 3c2.6 0 4.2 2 4.2 5.2 0 .7.2 1.3.6 1.8.5.6 1.3.8 2 .7-.2.8-1.2 1.4-1.8 1.8-.3.2-.4.6-.2 1 .4.7 1.4 1.1 1.4 1.8 0 .5-.6.8-1.3.7-.8 0-1.3.4-1.5 1.1-.2.6-.8 1-1.6.9-.7-.1-1.2.2-1.4.8-.2.5-.8.8-1.4.8s-1.2-.3-1.4-.8c-.2-.6-.7-.9-1.4-.8-.8.1-1.4-.3-1.6-.9-.2-.7-.7-1.1-1.5-1.1-.7.1-1.3-.2-1.3-.7 0-.7 1-1.1 1.4-1.8.2-.4.1-.8-.2-1-.6-.4-1.6-1-1.8-1.8.7.1 1.5-.1 2-.7.4-.5.6-1.1.6-1.8C7.8 5 9.4 3 12 3Z" />
-        </svg>
-      ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M10 8.5v7l6-3.5-6-3.5ZM12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z" />
-        </svg>
-      )}
-    </a>
-  );
-}
-
-function GrowShop({ shop }: { shop: Shop }) {
-  const ui = useShopChrome(shop);
-  const { t, name, area } = ui;
-  const navigate = useNavigate();
-  const user = useSession((s) => s.user);
-  const accounts = useSession((s) => s.accounts);
-  const pageLikes = useSession((s) => s.pageLikes) ?? [];
-  const togglePageLike = useSession((s) => s.togglePageLike);
-  const follows = useSession((s) => s.follows) ?? [];
-  const restocks = useSession((s) => s.restocks) ?? [];
-  const watchRestock = useSession((s) => s.watchRestock);
-  const toggleFollow = useSession((s) => s.toggleFollow);
-  const waTaps = useSession((s) => s.waTaps) ?? {};
-  const addresses = useSession((s) => s.addresses);
-  const [tab, setTab] = useState<"menu" | "order">("menu");
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [draft, setDraft] = useState<{ id: string; qty: number; note: string; picks: number[] } | null>(null);
-  const [chosen, setChosen] = useState<Record<string, number[]>>({});
-  const [itemQuery, setItemQuery] = useState("");
-  const [addressId, setAddressId] = useState("");
-  const [addressOpen, setAddressOpen] = useState(false);
-  const [zone, setZone] = useState<"amman" | "outside" | "intl">("amman");
-  const [method, setMethod] = useState<"delivery" | "pickup">(shop.handoff === "pickup" ? "pickup" : "delivery");
-  const query = itemQuery.trim().toLowerCase();
-  const lines = shop.products
-    .map((product) => {
-      const picks = chosen[product.id];
-      const detail = choiceLabel(product, picks, ui.lang);
-      return {
-        product: { ...product, price: product.price + choiceExtra(product, picks) },
-        qty: counts[product.id] ?? 0,
-        note: notes[product.id],
-        detail,
-      };
-    })
-    .filter((line) => line.qty > 0);
-  const itemsTotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0);
-  const handoff = shop.handoff ?? "both";
-  const delivering = method === "delivery" && handoff !== "pickup";
-  const feeRaw = !delivering ? null : zone === "outside" ? shop.delivery?.outside : zone === "intl" ? shop.delivery?.intl : shop.delivery?.amman;
-  const feeAmount = feeRaw ? deliveryAmount(feeRaw) : null;
-  const total = itemsTotal + (feeAmount ?? 0);
-  const saved = addresses.find((item) => item.id === addressId);
-  const addressPick = saved ? { name: saved.name, line: saved.line, lat: saved.lat, lng: saved.lng } : null;
-  const [sectionKey, setSectionKey] = useState("");
-  const sections = useMemo(() => menuGroups(shop.products).filter((group) => group.items.length > 0), [shop.products]);
-  const shown = sectionKey ? sections.filter((group) => group.key === sectionKey) : sections;
-  const matched = sectionsWithMatches(shown, query);
-  const productIds = useMemo(() => new Set(shop.products.map((p) => p.id)), [shop.products]);
-  const liveLikers = Object.values(accounts).filter(
-    (account) =>
-      account.role !== "seller" &&
-      ((account.pageLikes ?? []).includes(shop.slug) || (account.favorites ?? []).some((id) => productIds.has(id))),
-  ).length;
-  const totalLikes = (shop.likes ?? 0) + liveLikers;
-  const pageOn = pageLikes.includes(shop.slug);
-  const pro = shop.plan === "premium";
-  const following = follows.includes(shop.slug);
-  const followerCount =
-    (shop.followers ?? 0) +
-    Object.values(accounts).filter((account) => account.role !== "seller" && (account.follows ?? []).includes(shop.slug)).length;
-  const orderCount = (shop.waOrders ?? 0) + (waTaps[shop.slug] ?? 0);
-  const orderLabel = shop.mode === "inquire" ? t.inquiriesMade : shop.mode === "both" ? t.ordersAndInquiries : t.ordersMade;
-  const ar = ui.lang === "ar";
-
-  function notify(product: Product) {
-    if (!user) {
-      void navigate({ to: "/sign-in", search: { next: `/shop/${shop.slug}` } });
-      return;
-    }
-    if (user.role === "seller") return;
-    watchRestock({ productId: product.id, shopSlug: shop.slug, name: product.name, nameAr: product.nameAr });
-  }
-
-  function guardLike(run: () => void) {
-    if (!user) {
-      void navigate({ to: "/sign-in", search: { next: `/shop/${shop.slug}` } });
-      return;
-    }
-    if (user.role === "seller") return;
-    run();
-  }
-
-  function openItem(p: Product) {
-    ui.setActive(p);
-    ui.setShot({
-      images: p.images,
-      index: 0,
-      title: ar ? p.nameAr : p.name,
-      text: `${priceLabel(p, ui.lang)}\n${ar ? p.descAr : p.desc}`,
-      label: photoControlName(ui.lang, name, ar ? p.nameAr : p.name),
-    });
-  }
-
-  return (
-    <>
-      <TopBar t={t} shareTitle={name} shareSlug={shop.slug} shop={shop} bookmarked={ui.bookmarked} onReport={() => ui.setReportOn(true)} own={ui.own} seller={ui.seller} />
-      <div className="px-4 sm:px-8">
-        <button
-          type="button"
-          className="photo-open relative block h-52 w-full overflow-hidden rounded-2xl border border-ink/10 shadow-sm sm:h-64"
-          aria-label={photoControlName(ui.lang, name)}
-          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ar ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
-        >
-          <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
-          <span className="absolute inset-0 bg-gradient-to-t from-ink/70 via-ink/10 to-transparent" />
-          <span className="absolute bottom-4 start-4 end-4 text-start text-cream">
-            <span className="block font-display text-3xl leading-none sm:text-4xl">{name}</span>
-            <span className="mt-1 block text-sm text-cream/80">{area} · {t.cityName}</span>
+        ))}
+        <div className="order-amount">
+          <span>Amount · العدد</span>
+          <span>
+            <button type="button" aria-label="−" onClick={() => setLocal({ ...local, qty: Math.max(0, local.qty - 1) })}>−</button>
+            <b>{local.qty}</b>
+            <button type="button" aria-label="+" onClick={() => setLocal({ ...local, qty: local.qty + 1 })}>+</button>
           </span>
+        </div>
+        <label className="order-note">
+          <span>Comment · ملاحظة (optional · اختياري)</span>
+          <textarea maxLength={200} value={local.note} onChange={(event) => setLocal({ ...local, note: event.target.value.slice(0, 200) })} />
+        </label>
+        <button
+          type="button"
+          className="order-add"
+          disabled={local.qty > 0 && !ready}
+          onClick={() => onSave({ ...local, qty: local.qty > 0 && ready ? local.qty : 0, note: local.note.trim() })}
+        >
+          {ar ? `أضف للطلب · ${lineTotal}` : `Add to order · ${lineTotal}`}
         </button>
       </div>
-      <main className="grid items-start gap-8 px-4 pb-16 pt-6 sm:px-8 lg:grid-cols-3">
-        <aside className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm lg:sticky lg:top-4 lg:col-span-1">
-          <div className="flex items-end justify-between bg-ink px-5 pb-5 pt-5 text-cream">
-            <button
-              type="button"
-              className="photo-open -mb-10 block rounded-full"
-              aria-label={photoControlName(ui.lang, name)}
-              onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}
-            >
-              <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} className="size-24 rounded-full bg-paper object-cover ring-4 ring-gold" />
-            </button>
-            {!ui.seller && (
-            <span className="flex items-center gap-2 rounded-full bg-cream px-2 py-1 text-ink">
-              <button
-                type="button"
-                aria-pressed={pageOn}
-                aria-label={ar ? "إعجاب بالصفحة" : "Like this stall"}
-                className="heart-btn"
-                data-on={pageOn}
-                onClick={() => guardLike(() => togglePageLike(shop.slug))}
-              >
-                <HeartIcon />
-              </button>
-              {totalLikes > 0 && <span className="pe-2 text-sm font-semibold">{totalLikes.toLocaleString()}</span>}
-            </span>
-            )}
-          </div>
-          <div className="px-5 pb-5 pt-12">
-            <h1 id="shop-name" className="flex items-center gap-2 font-display text-3xl leading-none text-ink">
-              {name}
-              <PlanBadge plan={displayPlan(shop.plan)} size="profile" />
-            </h1>
-            {(() => {
-              const open = displayOpen(shop);
-              if (open == null) return null;
-              return (
-            <div className="mt-4 overflow-hidden rounded-lg border-2 border-ink bg-ink text-center text-cream">
-              <div className="flex items-center justify-center gap-2 px-3 py-3">
-                <span
-                  className={cn(
-                    "size-3 rounded-full",
-                    open ? "bg-[#3ddc84] shadow-[0_0_12px_#3ddc84]" : "bg-[#ff3b3b] shadow-[0_0_12px_#ff3b3b]",
-                  )}
-                  aria-hidden="true"
-                />
-                <span className="font-display text-xl tracking-[0.2em]">{open ? (ar ? "مفتوح" : "OPEN") : ar ? "مغلق" : "CLOSED"}</span>
-              </div>
-              {shop.hours && <p className="border-t border-cream/20 px-3 py-2 text-xs tracking-wide text-cream">{shop.hours}</p>}
-            </div>
-              );
-            })()}
-            {displayOpen(shop) == null && shop.hours && <p className="mt-4 text-sm text-mute">{shop.hours}</p>}
-            {(shop.views ?? 0) > 0 && <p className="mt-2 text-xs text-mute">{t.views} · {shop.views!.toLocaleString()}</p>}
-            <StallNote shop={shop} lang={ui.lang} />
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-                {followerCount > 0 && <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{t.followers} {followerCount.toLocaleString()}</span>}
-                {pro && orderCount > 0 && <span className="rounded-full bg-sand px-3 py-1 text-xs text-ink">{orderLabel} {orderCount.toLocaleString()}</span>}
-                <button
-                  type="button"
-                  aria-pressed={following}
-                  className={cn("h-9 rounded-full px-4 text-sm font-semibold", following ? "border border-ink bg-paper text-ink" : "bg-ink text-cream")}
-                  onClick={() => guardLike(() => toggleFollow(shop.slug))}
-                >
-                  {following ? t.following : t.follow}
-                </button>
-              </div>
-            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <DuckRating score={shop.rating ?? 0} />
-              <p className="text-sm text-ink">
-                {(() => {
-                  const count = shop.reviewCount ?? shop.reviews?.length ?? 0;
-                  if (!count) return shop.rating ? String(shop.rating) : null;
-                  return `${shop.rating ?? "–"} · ${count} ${t.reviews}`;
-                })()}
-              </p>
-              <button
-                type="button"
-                className="text-sm font-semibold text-ink underline decoration-gold underline-offset-4"
-                onClick={() => document.getElementById("shop-reviews")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              >
-                {ar ? "اقرأ التقييمات" : "Read reviews"}
-              </button>
-            </div>
-            <div className="mt-5 rounded-xl bg-cream px-4 py-4 ring-1 ring-line">
-              <p className="text-xs font-semibold tracking-[0.16em] text-ink">{ar ? "عن الدكان" : "ABOUT"}</p>
-              <p className="mt-2 text-sm leading-relaxed text-ink">{ar ? shop.bioAr : shop.bio}</p>
-            </div>
-            <SellerNameNote slug={shop.slug} />
-            {shop.socials && (
-              <div className="mt-4 flex gap-2">
-                {shop.socials.map((item) => (
-                  <SocialMark key={item.href} label={item.label} href={item.href} />
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
-        <section className="lg:col-span-2">
-          <div className="flex gap-1 rounded-xl bg-sand p-1" role="tablist">
-            <button type="button" role="tab" className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "menu" || ui.own ? "bg-ink text-cream" : "text-ink")} onClick={() => setTab("menu")}>
-              {t.menu}
-            </button>
-            {!ui.own && (
-            <button type="button" role="tab" className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", tab === "order" ? "bg-ink text-cream" : "text-ink")} onClick={() => setTab("order")}>
-              {t.orderInquireNow}
-            </button>
-            )}
-          </div>
-          <SectionTabs groups={sections} active={sectionKey} onPick={setSectionKey} lang={ui.lang} />
-          {shop.plan === "premium" && (
-            <input
-              value={itemQuery}
-              onChange={(event) => setItemQuery(event.target.value)}
-              placeholder={ar ? "ابحث في هذا الدكان" : "Search this stall"}
-              aria-label={ar ? "ابحث في هذا الدكان" : "Search this stall"}
-              className="mt-4 h-11 w-full rounded-lg border border-line bg-white px-3 text-sm"
-            />
-          )}
-          <div className="mt-6 space-y-8">
-            {query && matched.length === 0 ? (
-              <div className="shop-search-empty" role="status">
-                <p lang="en">No matching items</p>
-                <p lang="ar" dir="rtl">لا توجد منتجات مطابقة</p>
-                <button type="button" onClick={() => setItemQuery("")}>
-                  <span lang="en">Clear search</span>
-                  <span lang="ar" dir="rtl">مسح البحث</span>
-                </button>
-              </div>
-            ) : matched.map((section) => (
-              <div key={section.key} id={`cat-${section.key}`}>
-                {!sectionKey && <h2 className="font-display text-2xl text-ink">{ar ? section.titleAr : section.title}</h2>}
-                {!sectionKey && <div className="mt-2 h-px bg-line" />}
-                {tab === "order" && !ui.own ? (
-                <ul className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
-                  {section.items.map((p) => (
-                    <OrderLine
-                      key={p.id}
-                      product={p}
-                      lang={ui.lang}
-                      sellerName={name}
-                      qty={counts[p.id] ?? 0}
-                      onOpen={() => openItem(p)}
-                      onAdd={() => setDraft({ id: p.id, qty: Math.max(1, counts[p.id] ?? 1), note: notes[p.id] ?? "", picks: chosen[p.id] ?? defaultPicks(p) })}
-                      onNotify={() => notify(p)}
-                      watching={restocks.some((watch) => watch.productId === p.id)}
-                    />
-                  ))}
-                </ul>
-                ) : (
-                <ul className="menu-grid mt-3">
-                  {section.items.map((p) => (
-                    <li key={p.id} id={`item-${p.id}`}>
-                      <MenuTile
-                        product={p}
-                        lang={ui.lang}
-                        sellerName={name}
-                        own={!!ui.own}
-                        seller={!!ui.seller}
-                        loved={ui.fav(p.id)}
-                        onOpen={() => openItem(p)}
-                        onLove={() => guardLike(() => ui.toggleFavorite(p.id))}
-                        onNotify={() => notify(p)}
-                        watching={restocks.some((watch) => watch.productId === p.id)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-                )}
-              </div>
-            ))}
-          </div>
-          {pro && tab === "menu" && shop.custom && !ui.own && (
-            <div className="mt-8 rounded-xl border border-line bg-sand p-4">
-              <h2 className="font-display text-2xl text-ink">{t.customize}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-ink">{ar ? shop.custom.ar : shop.custom.en}</p>
-              <div className="mt-4">
-                <WhatsAppCta
-                  shop={shop}
-                  mode="inquire"
-                  product={{
-                    id: `${shop.slug}-custom`,
-                    name: "Custom order",
-                    nameAr: "طلب خاص",
-                    price: 0,
-                    desc: shop.custom.en,
-                    descAr: shop.custom.ar,
-                    images: [shop.avatar],
-                  }}
-                  items={[
-                    {
-                      product: {
-                        id: `${shop.slug}-custom`,
-                        name: "Custom order",
-                        nameAr: "طلب خاص",
-                        price: 0,
-                        desc: shop.custom.en,
-                        descAr: shop.custom.ar,
-                        images: [shop.avatar],
-                      },
-                      qty: 1,
-                      note: ar ? shop.custom.ar : shop.custom.en,
-                    },
-                  ]}
-                />
-              </div>
-            </div>
-          )}
-          {tab === "order" && !ui.own && (
-            <div className="mt-6 space-y-4 rounded-xl border border-line bg-cream p-4">
-              <div className="flex gap-2">
-                {handoff !== "pickup" && (
-                  <button type="button" className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", method === "delivery" ? "bg-ink text-cream" : "border border-line bg-paper")} onClick={() => setMethod("delivery")}>
-                    {t.delivery}
-                  </button>
-                )}
-                {handoff !== "delivery" && (
-                  <button type="button" className={cn("h-11 flex-1 rounded-lg text-sm font-semibold", method === "pickup" ? "bg-ink text-cream" : "border border-line bg-paper")} onClick={() => setMethod("pickup")}>
-                    {t.pickup}
-                  </button>
-                )}
-              </div>
-              {delivering && shop.delivery && (
-                <div className="text-sm">
-                  <p className="font-semibold text-ink">{t.deliveryFees}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(
-                      [
-                        { id: "amman" as const, label: `${t.cityName} · ${shop.delivery.amman}` },
-                        { id: "outside" as const, label: `${t.outside} · ${shop.delivery.outside}` },
-                        ...(shop.delivery.intl ? [{ id: "intl" as const, label: `${ar ? "دولي" : "International"} · ${place(shop.delivery.intl, ui.lang)}` }] : []),
-                      ]
-                    ).map((item) => (
-                      <button key={item.id} type="button" className={cn("h-10 rounded-full border px-3 text-sm", zone === item.id ? "border-ink bg-ink text-cream" : "border-line bg-paper")} onClick={() => setZone(item.id)}>
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {delivering && (
-              <label className="block text-sm">
-                <span className="mb-1 block font-semibold">{t.deliveryLocation}</span>
-                <select
-                  className="h-11 w-full rounded-md border border-line bg-white px-3"
-                  value={addressId}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    if (next === "add") {
-                      setAddressOpen(true);
-                      return;
-                    }
-                    setAddressId(next);
-                  }}
-                >
-                  <option value="">{t.addressWord}</option>
-                  {addresses.map((item) => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                  <option value="add">{t.addAddress}</option>
-                </select>
-              </label>
-              )}
-              <div className="flex items-center justify-between rounded-xl bg-ink px-4 py-3 text-cream">
-                <span className="text-sm">{lines.reduce((sum, line) => sum + line.qty, 0)} {ar ? "أصناف" : "items"}</span>
-                <span className="font-display text-xl">{t.orderTotal} {formatJod(total)}</span>
-              </div>
-              {lines[0] && (
-                <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode="invoice" lockAddress addressPick={delivering ? addressPick : null} deliveryFee={delivering && feeRaw ? { label: feeRaw, amount: feeAmount } : null} fulfillment={delivering ? "delivery" : "pickup"} />
-              )}
-            </div>
-          )}
-          <section id="shop-reviews" className="mt-12 scroll-mt-6 border-t border-gold pt-6">
-            <h2 className="font-display text-2xl text-ink">{t.reviews}</h2>
-            <div className="mt-2 flex items-center gap-2">
-              <DuckRating score={shop.rating ?? 0} />
-              <span className="text-sm text-mute">
-                {(() => {
-                  const count = shop.reviewCount ?? shop.reviews?.length ?? 0;
-                  if (!count) return shop.rating ? String(shop.rating) : null;
-                  return `${shop.rating ?? "–"} · ${count}`;
-                })()}
-              </span>
-            </div>
-            <ReviewList shop={shop} />
-          </section>
-        </section>
-      </main>
-      <PhotoFrame shot={ui.shot} onClose={() => ui.setShot(null)} />
-      <ReportNote on={ui.reportOn} onClose={() => ui.setReportOn(false)} />
-      {addressOpen && (
-        <AddressDialog
-          open
-          onClose={() => setAddressOpen(false)}
-          onSaved={(id) => setAddressId(id)}
-        />
-      )}
-      {draft &&
-        shop.products
-          .filter((item) => item.id === draft.id)
-          .map((item) => {
-            const title = ar ? item.nameAr : item.name;
-            const about = ar ? item.descAr : item.desc;
-            const unit = item.price + choiceExtra(item, draft.picks);
-            const ready = picksReady(item, draft.picks);
-            return (
-              <div key={item.id} className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 sm:items-center" onClick={() => setDraft(null)}>
-                <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-paper p-4 shadow-md" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex justify-end">
-                    <button type="button" className="size-10 text-xl" aria-label="Close" onClick={() => setDraft(null)}>
-                      ×
-                    </button>
-                  </div>
-                  <OptImg src={item.images[0]} alt="" className="h-44 w-full rounded-lg object-cover" />
-                  <h3 className="mt-3 font-display text-2xl text-ink">{title}</h3>
-                  <p className="mt-1 text-sm font-semibold text-gold">{item.priceMode && item.priceMode !== "price" ? priceLabel(item, ui.lang) : formatJod(unit)}</p>
-                  <p className="mt-2 text-sm leading-relaxed text-mute">{about}</p>
-                  {(item.choices ?? []).map((choice, index) => (
-                    <div key={`${choice.en}-${index}`} className="mt-4">
-                      <p className="text-sm font-semibold">{ar ? choice.ar || choice.en : choice.en}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {choice.options.map((option, optionIndex) => {
-                          const on = draft.picks[index] === optionIndex;
-                          return (
-                            <button
-                              key={`${option.en}-${optionIndex}`}
-                              type="button"
-                              disabled={option.off}
-                              className={cn(
-                                "h-9 rounded-full px-3 text-sm",
-                                option.off ? "border border-line text-mute line-through" : on ? "bg-ink text-cream" : "border border-line bg-white",
-                              )}
-                              onClick={() => setDraft({ ...draft, picks: draft.picks.map((pick, pickIndex) => (pickIndex === index ? optionIndex : pick)) })}
-                            >
-                              {ar ? option.ar || option.en : option.en}
-                              {option.off ? ` · ${optionNote(option, ar)}` : option.extra ? ` +${option.extra}` : ""}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {item.chart && (
-                    <button type="button" className="photo-open mt-4 block" aria-label={photoControlName(ui.lang, name, ar ? "الجدول" : "Chart")} onClick={() => ui.setShot({ src: item.chart, title: ar ? "الجدول" : "Chart", label: photoControlName(ui.lang, name, ar ? "الجدول" : "Chart") })}>
-                      <OptImg src={item.chart} alt="" className="h-24 rounded-md border border-line object-cover" />
-                      <span className="mt-1 block text-xs font-semibold underline">{ar ? "شوف الجدول" : "View chart"}</span>
-                    </button>
-                  )}
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="text-sm font-semibold">{ar ? "العدد" : "Amount"}</span>
-                    <div className="flex items-center gap-2">
-                      <button type="button" className="size-11 rounded-md border border-line" onClick={() => setDraft({ ...draft, qty: Math.max(0, draft.qty - 1) })}>
-                        −
-                      </button>
-                      <span className="w-6 text-center tabular-nums">{draft.qty}</span>
-                      <button type="button" className="size-11 rounded-md border border-line" onClick={() => setDraft({ ...draft, qty: draft.qty + 1 })}>
-                        +
-                      </button>
-                    </div>
-                  </div>
-                  <label className="mt-4 block text-sm">
-                    <span className="mb-1 block font-semibold">{ar ? "ملاحظة" : "Comment"}</span>
-                    <textarea
-                      className="h-24 w-full rounded-md border border-line bg-white p-3 text-sm"
-                      value={draft.note}
-                      placeholder={ar ? "اختياري" : "Optional"}
-                      onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!ready || draft.qty < 1}
-                    className="mt-4 h-12 w-full rounded-md bg-ink font-semibold text-cream disabled:opacity-40"
-                    onClick={() => {
-                      setCounts((c) => ({ ...c, [item.id]: draft.qty }));
-                      setNotes((n) => ({ ...n, [item.id]: draft.note.trim() }));
-                      setChosen((c) => ({ ...c, [item.id]: draft.picks }));
-                      setDraft(null);
-                    }}
-                  >
-                    {ar ? "حسناً" : "OK"}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-    </>
+    </div>
   );
 }
 
-function PremiumShop({ shop }: { shop: Shop }) {
-  const ui = useShopChrome(shop);
-  const { t, name, area, active } = ui;
+function choiceLabelHeading(choice: { en: string; ar?: string }, ar: boolean) {
+  return ar ? choice.ar || choice.en : choice.en;
+}
+
+function OrderPreview({
+  shop,
+  name,
+  lines,
+  mode,
+  onClose,
+  onSent,
+}: {
+  shop: Shop;
+  name: string;
+  lines: { product: Product; qty: number; note?: string; detail?: string; lineTotal?: number | null }[];
+  mode: "inquire" | "invoice";
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const ref = useSheetTrap(onClose);
   return (
-    <>
-      <div className="relative">
-        <button
-          type="button"
-          className="photo-open block w-full"
-          aria-label={photoControlName(ui.lang, name)}
-          onClick={() => ui.setShot({ src: shop.cover ?? shop.avatar, title: name, text: ui.lang === "ar" ? shop.bioAr : shop.bio, label: photoControlName(ui.lang, name) })}
-        >
-          <FramedImage src={shop.cover ?? shop.avatar} frameId={`cover:${shop.slug}`} className="h-56 w-full sm:h-80" />
-        </button>
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/70 to-transparent" />
-        <div className="pointer-events-auto absolute inset-x-0 bottom-0 flex items-end justify-end px-4 py-4 sm:px-8">
-          <div className="shop-actions">
-            <ShareStall title={name} slug={shop.slug} label={t.share} copiedLabel={t.copied} />
-            {!ui.own && !ui.seller && <BookmarkMenu shop={shop} bookmarked={ui.bookmarked} />}
-            {!ui.own && (
-            <button type="button" onClick={() => ui.setReportOn(true)} className={actionBtn}>
-              <FlagIcon /> {t.report}
-            </button>
-            )}
-          </div>
-        </div>
+    <div className="order-sheet" onClick={onClose}>
+      <div ref={ref} className="order-sheet-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="order-handle" aria-hidden="true" />
+        <button type="button" className="order-x" aria-label="Close" onClick={onClose}>×</button>
+        <h3>Check your message / راجع رسالتك</h3>
+        <p className="order-to">To {name} on WhatsApp · not sent until you tap send in WhatsApp</p>
+        <WhatsAppCta shop={shop} product={lines[0].product} items={lines} mode={mode} preview onEdit={onClose} onSent={onSent} />
       </div>
-      <main className="grid items-start gap-8 px-4 pb-16 sm:px-8 lg:grid-cols-3">
-        <aside className="lg:col-span-1">
-        <div className="-mt-10 flex flex-wrap items-end gap-4">
-          <button type="button" className="photo-open" aria-label={photoControlName(ui.lang, name)} onClick={() => ui.setShot({ src: shop.avatar, title: name, text: `${area} · ${t.cityName}`, label: photoControlName(ui.lang, name) })}>
-            <FramedImage src={shop.avatar} frameId={`avatar:${shop.slug}`} className="size-28 rounded-md border-4 border-paper object-cover shadow-md" />
-          </button>
-          <div>
-            <h1 id="shop-name" className="mt-1 flex items-center gap-2 font-display text-4xl tracking-tight">
-              {name}
-              <PlanBadge plan={displayPlan("premium")} size="profile" />
-            </h1>
-            <p className="text-mute">
-              {area} · {t.cityName} · {shop.since}
-            </p>
-          </div>
-        </div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-4">
-          {[
-            displayOpen(shop) == null ? "" : displayOpen(shop) ? t.open : t.closed,
-            (shop.views ?? 0) > 0 ? `${shop.views!.toLocaleString()} ${t.views}` : "",
-            (shop.reviewCount ?? shop.reviews?.length ?? 0) > 0 ? `${shop.rating ?? "–"} · ${shop.reviewCount ?? shop.reviews?.length ?? 0} ${t.reviews}` : "",
-            shop.hours ?? "",
-          ].filter(Boolean).map((s) => (
-            <div key={s} className="rounded-lg border border-line bg-cream px-3 py-3 text-sm">
-              {s}
-            </div>
-          ))}
-        </div>
-        <StallNote shop={shop} lang={ui.lang} />
-        <p className="mt-6 max-w-2xl text-base leading-relaxed">{ui.lang === "ar" ? shop.bioAr : shop.bio}</p>
-        <SellerNameNote slug={shop.slug} />
-        {shop.keywords && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {shop.keywords.map((k) => (
-              <span key={k} className="rounded-full border border-line px-3 py-1 text-xs text-mute">
-                {k}
-              </span>
-            ))}
-          </div>
-        )}
-        {shop.socials && shop.socials.length > 0 && (
-          <div className="mt-4 flex gap-2">
-            {shop.socials.map((item) => (
-              <SocialMark key={item.href} label={item.label} href={item.href} />
-            ))}
-          </div>
-        )}
-        {shop.delivery && (
-          <p className="mt-2 text-sm text-mute">
-            {t.delivery}: {t.cityName} {shop.delivery.amman} · {t.outside} {shop.delivery.outside}
-          </p>
-        )}
-
-        </aside>
-        <section className="lg:col-span-2">
-        <h2 className="font-display text-2xl">Collection</h2>
-        <div className="mt-4 grid gap-6 md:grid-cols-2">
-          {shop.products.map((p) => (
-            <div
-              key={p.id}
-              className={cn(
-                "grid grid-cols-[140px_1fr] overflow-hidden rounded-xl border border-line bg-cream text-start",
-                active?.id === p.id && "ring-2 ring-stamp-blue",
-              )}
-            >
-              <button
-                type="button"
-                className="photo-open"
-                aria-label={photoControlName(ui.lang, name, ui.lang === "ar" ? p.nameAr : p.name)}
-                onClick={() =>
-                  ui.setShot({
-                    src: p.images[0],
-                    title: ui.lang === "ar" ? p.nameAr : p.name,
-                    text: `${priceLabel(p, ui.lang)}\n${ui.lang === "ar" ? p.descAr : p.desc}`,
-                    label: photoControlName(ui.lang, name, ui.lang === "ar" ? p.nameAr : p.name),
-                  })
-                }
-              >
-                <OptImg src={p.images[0]} alt="" className="h-full min-h-32 w-full object-cover" />
-              </button>
-              <button type="button" className="p-4 text-start" onClick={() => ui.setActive(p)}>
-                <h3 className="font-display text-xl">{ui.lang === "ar" ? p.nameAr : p.name}</h3>
-                <p className="text-sm text-mute">{priceLabel(p, ui.lang)}</p>
-                <p className="mt-2 line-clamp-2 text-sm">{ui.lang === "ar" ? p.descAr : p.desc}</p>
-              </button>
-              {ui.own && <div className="col-span-2 px-4 pb-3"><ItemEdit id={p.id} own seller={ui.seller} loved={ui.fav(p.id)} lang={ui.lang} onLove={() => ui.toggleFavorite(p.id)} /></div>}
-            </div>
-          ))}
-        </div>
-
-        {active && !ui.own && (
-        <div className="mt-8 rounded-xl bg-ink p-5 text-cream">
-          <h3 className="font-display text-2xl">{ui.lang === "ar" ? active.nameAr : active.name}</h3>
-          <p className="text-sand">{priceLabel(active, ui.lang)}</p>
-          <div className="mt-4 max-w-md">
-            <Gallery
-              images={ui.images}
-              photo={ui.photo}
-              setPhoto={ui.setPhoto}
-              title={active.name}
-              label={photoControlName(ui.lang, name, ui.lang === "ar" ? active.nameAr : active.name)}
-              onOpen={(src) =>
-                ui.setShot({
-                  src,
-                  title: ui.lang === "ar" ? active.nameAr : active.name,
-                  text: `${priceLabel(active, ui.lang)}\n${ui.lang === "ar" ? active.descAr : active.desc}`,
-                  label: photoControlName(ui.lang, name, ui.lang === "ar" ? active.nameAr : active.name),
-                })
-              }
-            />
-          </div>
-          <div className="mt-4 flex items-center gap-3">
-            <button type="button" className="size-10 rounded-md bg-cream text-ink" onClick={() => ui.setQty(Math.max(1, ui.qty - 1))}>
-              −
-            </button>
-            <span className="tabular-nums">{ui.qty}</span>
-            <button type="button" className="size-10 rounded-md bg-cream text-ink" onClick={() => ui.setQty(ui.qty + 1)}>
-              +
-            </button>
-          </div>
-          <div className="mt-4">
-            <WhatsAppCta shop={shop} product={active} qty={ui.qty} mode="invoice" />
-          </div>
-        </div>
-        )}
-
-        <section className="mt-10">
-          <h2 className="font-display text-xl">{t.reviews}</h2>
-          <DuckRating score={shop.rating ?? 0} />
-          <ReviewList shop={shop} />
-        </section>
-        </section>
-      </main>
-      <PhotoFrame shot={ui.shot} onClose={() => ui.setShot(null)} />
-      <ReportNote on={ui.reportOn} onClose={() => ui.setReportOn(false)} />
-    </>
+    </div>
   );
 }
 
