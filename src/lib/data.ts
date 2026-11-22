@@ -12,6 +12,14 @@ export function normalizePlan(plan: string | null | undefined): PlanId {
   if (plan === "basic" || plan === "premium" || plan === "free") return plan;
   return FREE_TIER_ENABLED ? "free" : "basic";
 }
+
+/** What buyers see. Free stays badge-less only while the Free tier flag is on. */
+export function displayPlan(plan: string | null | undefined): PlanId {
+  if (plan === "pro" || plan === "grow") return "pro";
+  if (plan === "premium") return "premium";
+  if (plan === "free" && FREE_TIER_ENABLED) return "free";
+  return "basic";
+}
 export type CategoryId =
   | "food"
   | "handicrafts"
@@ -304,7 +312,7 @@ export const SHOPS: Shop[] = [
     area: "Sweifieh",
     areaAr: "الصويفية",
     category: "food",
-    plan: "free",
+    plan: "basic",
     phone: "",
     avatar: duck,
     since: "March 2026",
@@ -792,7 +800,7 @@ export const SHOPS: Shop[] = [
     area: "Khalda",
     areaAr: "خلدا",
     category: "misc",
-    plan: "free",
+    plan: "basic",
     phone: "",
     avatar: duck,
     since: "Oct 2026",

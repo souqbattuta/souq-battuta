@@ -1,4 +1,4 @@
-import { PLANS, type PlanId } from "@/lib/data";
+import { PLANS, displayPlan, type PlanId } from "@/lib/data";
 import { cn } from "@/lib/cn";
 
 const CROWN_COLOR: Record<Exclude<PlanId, "free">, string> = {
@@ -49,8 +49,26 @@ export function Crown({ plan, className }: { plan: PlanId; className?: string })
   );
 }
 
-export function PlanStamp({ plan, className }: { plan: PlanId | "grow"; className?: string }) {
-  const shown = plan === "grow" ? "pro" : plan;
+export function PlanBadge({
+  plan,
+  size = "card",
+  className,
+}: {
+  plan: string | null | undefined;
+  size?: "card" | "profile" | "phone" | "mark";
+  className?: string;
+}) {
+  const shown = displayPlan(plan);
   if (shown === "free" || !PLANS[shown]) return null;
-  return <Crown plan={shown} className={className ?? "h-6 w-7"} />;
+  const sized =
+    size === "profile" ? "plan-badge profile-badge"
+    : size === "phone" ? "plan-badge stall-phone-crown"
+    : size === "mark" ? "h-6 w-7"
+    : "plan-badge";
+  return <Crown plan={shown} className={cn(sized, className)} />;
+}
+
+export function PlanStamp({ plan, className }: { plan: PlanId | "grow"; className?: string }) {
+  const size = className?.includes("profile-badge") ? "profile" : className?.includes("stall-phone-crown") ? "phone" : className?.includes("plan-badge") ? "card" : "mark";
+  return <PlanBadge plan={plan} size={size} className={className} />;
 }

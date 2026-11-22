@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { Shop } from "@/lib/data";
+import { displayPlan, type Shop } from "@/lib/data";
 import {
   HELLO_CAP,
   HELLO_EDIT,
@@ -20,7 +20,7 @@ import {
 import { directoryShops, useSession } from "@/lib/session";
 import { SquareCrop } from "@/components/photo-frame";
 import { OptImg } from "@/components/opt-img";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
 
 export function helloStamp(at: number) {
@@ -614,7 +614,7 @@ export function HelloStrip({ shops }: { shops: Shop[] }) {
                     return (
                       <span key={`${copy}-${post.id}-${index}`} className="hw-tick">
                         <OptImg src={shop?.avatar || "/brand/duck-mark.png"} alt="" sizes="32px" />
-                        {shop && shop.plan !== "free" && <PlanStamp plan={shop.plan} className="plan-badge" />}
+                        {shop && <PlanBadge plan={displayPlan(shop.plan)} size="card" />}
                         <span dir={post.lang === "ar" ? "rtl" : "ltr"} lang={post.lang}>{post.text}</span>
                       </span>
                     );

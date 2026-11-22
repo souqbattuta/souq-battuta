@@ -1,9 +1,10 @@
 import { createFileRoute, Link, stripSearchParams } from "@tanstack/react-router";
+import { displayPlan } from "@/lib/data";
 import { directoryShops, useSession } from "@/lib/session";
 import { browseNudge, hasWord, useTieSeed } from "@/lib/shelves";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { OptImg } from "@/components/opt-img";
 
 export const Route = createFileRoute("/discover")({
@@ -59,7 +60,7 @@ function DiscoverPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <b>{lang === "ar" ? s.nameAr : s.name}</b>
-                    <PlanStamp plan={s.plan} />
+                    <PlanBadge plan={displayPlan(s.plan)} size="mark" />
                   </div>
                   <p className="text-xs text-mute">{lang === "ar" ? s.areaAr : s.area}</p>
                 </div>

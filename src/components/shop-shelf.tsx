@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { CATEGORIES, type Shop } from "@/lib/data";
-import { PlanStamp } from "@/components/plan-stamp";
+import { CATEGORIES, displayPlan, type Shop } from "@/lib/data";
+import { PlanBadge } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
 import { DuckRating } from "@/components/duck-rating";
 import { OptImg } from "@/components/opt-img";
@@ -206,7 +206,7 @@ export function ShopTiles({
               <span className="stall-face-desk">
               <span className="stall-card-catrow">
                 {category && <span className="stall-card-cat">{ar ? category.ar : category.en}</span>}
-                <PlanStamp plan={shop.plan} className="plan-badge" />
+                <PlanBadge plan={displayPlan(shop.plan)} size="card" />
               </span>
               <span className="stall-card-photos">
                 <OptImg className="stall-card-photo" src={shop.avatar} alt="" />
@@ -229,7 +229,7 @@ export function ShopTiles({
                   {name}
                 </span>
                 <span className="stall-card-meta">
-                  {shop.plan !== "free" && (
+                  {displayPlan(shop.plan) !== "free" && (
                     <span className="stall-card-rating">
                       <DuckRating score={rating} size={16} />
                       {count > 0 && <em>{rating}</em>}
@@ -255,11 +255,11 @@ export function ShopTiles({
                 <span className="stall-phone-shot">
                   <OptImg className="stall-phone-pic" src={lead} alt="" />
                   <OptImg className="stall-phone-avatar" src={shop.avatar} alt="" />
-                  <PlanStamp plan={shop.plan} className="plan-badge stall-phone-crown" />
+                  <PlanBadge plan={displayPlan(shop.plan)} size="phone" />
                 </span>
                 <span className={ar ? "stall-card-name font-arabic" : "stall-card-name"}>{name}</span>
                 <span className="stall-card-meta">
-                  {shop.plan !== "free" && (
+                  {displayPlan(shop.plan) !== "free" && (
                     <span className="stall-card-rating">
                       <DuckRating score={rating} size={12} />
                       {count > 0 && <em>{rating}</em>}
@@ -726,7 +726,7 @@ export function StallPeek({
           <Link to="/shop/$slug" params={{ slug: shop.slug }} className="peek-id">
             <OptImg className="peek-logo" src={shop.avatar} alt="" />
             <span className={ar ? "peek-name font-arabic" : "peek-name"}>{ar ? shop.nameAr : shop.name}</span>
-            <PlanStamp plan={shop.plan} className="plan-badge" />
+            <PlanBadge plan={displayPlan(shop.plan)} size="card" />
           </Link>
           <span className="peek-tools">
             <PeekMenu shop={shop} ar={ar} />
@@ -769,7 +769,7 @@ export function StallPeek({
           </p>
         )}
         <div className="peek-review">
-          {shop.plan !== "free" && (
+          {displayPlan(shop.plan) !== "free" && (
             <span className="stall-card-rating">
               <DuckRating score={rating} size={18} />
               <em>{rating}</em>

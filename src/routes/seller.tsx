@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { PLANS, WHATSAPP_REQUIRED, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
+import { PLANS, WHATSAPP_REQUIRED, displayPlan, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
 import { billingPhase, isShopWhatsapp, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { PhotoStudio, SquareCrop } from "@/components/photo-frame";
 import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
@@ -341,13 +341,16 @@ function SellerDesk() {
               <p className="text-sm text-mute">Ya Halla, {user.username}</p>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-3xl">{user.displayName || user.username}</h1>
-                <PlanStamp plan={planId} />
+                <PlanBadge plan={displayPlan(planId)} size="mark" />
               </div>
               <p className="mt-1 text-sm text-ink">
                 {ar ? plan.nameAr : plan.name}
                 {" · "}
                 {membershipLine(user.planEnds ?? account?.planEnds, ar)}
               </p>
+              {(account?.trial || user.trial) && Number(user.planEnds ?? account?.planEnds) > Date.now() && (
+                <p className="mt-1 text-sm text-ink">{freeMonthLine(Number(user.planEnds ?? account?.planEnds))}</p>
+              )}
               <BillingBanner ar={ar} planId={planId} phase={billingPhase(account ?? user)} ends={user.planEnds ?? account?.planEnds} pending={user.pendingPlan || account?.pendingPlan} />
               {(planId === "pro" || planId === "premium") && (
                 <p className="mt-1 text-sm text-ink">
@@ -1340,6 +1343,11 @@ function BillingBanner({ ar, planId, phase, ends, pending }: { ar: boolean; plan
   }
   if (!text) return null;
   return <p className="mt-2 rounded-md bg-sand px-3 py-2 text-sm text-ink">{text}</p>;
+}
+
+function freeMonthLine(planEnds: number) {
+  const date = new Date(planEnds).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return `Free month · ends ${date} · شهر مجاني · ينتهي ${date}`;
 }
 
 function membershipDays(planEnds?: number) {

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { CATEGORIES, PLANS, deliveryAmount, formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
+import { CATEGORIES, PLANS, deliveryAmount, displayPlan, formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
 import { displayOpen, slugForSeller, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
-import { Crown } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { FramedImage } from "@/components/photo-frame";
 import { DuckRating } from "@/components/duck-rating";
 import { HeartIcon } from "@/components/heart";
@@ -724,7 +724,7 @@ function PublicStall({ shop }: { shop: Shop }) {
         <p className="stall-kicker">{[catLabel, area].filter(Boolean).join(" · ")}</p>
         <h1 id="shop-name" className="stall-sign">
           {name}
-          <Crown plan={shop.plan} className="plan-badge profile-badge" />
+          <PlanBadge plan={displayPlan(shop.plan)} size="profile" />
         </h1>
         {shop.nameAr && shop.nameAr !== name && <p className="stall-sign-ar" dir="rtl" lang="ar">{shop.nameAr}</p>}
         <div className="stall-rule" aria-hidden="true"><i /><b /><i /></div>
@@ -1287,7 +1287,7 @@ function BasicShop({ shop }: { shop: Shop }) {
           <div className="border-t-4 border-gold px-5 py-5">
             <div className="flex items-center gap-2">
               <h1 id="shop-name" className="font-display text-4xl leading-none text-ink">{name}</h1>
-              <Crown plan="basic" className="plan-badge profile-badge" />
+              <PlanBadge plan={displayPlan("basic")} size="profile" />
             </div>
             <p className="mt-2 text-sm tracking-wide text-mute">{area} · {t.cityName}</p>
             <HoursStatus shop={shop} lang={ui.lang} />
@@ -1618,7 +1618,7 @@ function GrowShop({ shop }: { shop: Shop }) {
           <div className="px-5 pb-5 pt-12">
             <h1 id="shop-name" className="flex items-center gap-2 font-display text-3xl leading-none text-ink">
               {name}
-              <Crown plan={shop.plan} className="plan-badge profile-badge" />
+              <PlanBadge plan={displayPlan(shop.plan)} size="profile" />
             </h1>
             {(() => {
               const open = displayOpen(shop);
@@ -2013,7 +2013,7 @@ function PremiumShop({ shop }: { shop: Shop }) {
           <div>
             <h1 id="shop-name" className="mt-1 flex items-center gap-2 font-display text-4xl tracking-tight">
               {name}
-              <Crown plan="premium" className="plan-badge profile-badge" />
+              <PlanBadge plan={displayPlan("premium")} size="profile" />
             </h1>
             <p className="text-mute">
               {area} · {t.cityName} · {shop.since}

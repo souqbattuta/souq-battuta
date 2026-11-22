@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { OFFERED_PLANS, PLANS, type PlanId } from "@/lib/data";
+import { OFFERED_PLANS, PLANS, displayPlan, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { submitSouqPayment } from "@/lib/souq-sync";
 import { cn } from "@/lib/cn";
@@ -65,7 +65,7 @@ function SellPage() {
               <article key={id} className="flex flex-col rounded-xl border border-line bg-cream p-5">
                 <div className="flex items-center justify-between">
                   <h2 className="font-display text-2xl">{lang === "ar" ? p.nameAr : p.name}</h2>
-                  {p.badge !== "none" ? <PlanStamp plan={id} /> : <span className="text-xs text-mute">no stamp</span>}
+                  {p.badge !== "none" ? <PlanBadge plan={displayPlan(id)} size="mark" /> : <span className="text-xs text-mute">no stamp</span>}
                 </div>
                 <p className="mt-1 text-lg font-semibold">{p.price}</p>
                 <p className="text-xs text-mute">{id === "free" ? (ar ? "مجاناً لثلاثة أشهر" : "Free for 3 months") : p.priceNote}</p>

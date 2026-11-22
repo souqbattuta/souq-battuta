@@ -235,6 +235,7 @@ function publicProfile(phone: string, data: Record<string, unknown>, row: { role
     sellerPlan: row.plan ?? undefined,
     shopSlug: row.shop_slug ?? undefined,
     planEnds: typeof data.planEnds === "number" ? data.planEnds : undefined,
+    trial: data.trial === true,
     paymentStatus: typeof data.paymentStatus === "string" ? data.paymentStatus : undefined,
     pendingPlan: typeof data.pendingPlan === "string" ? data.pendingPlan : undefined,
     billingPeriod: data.billingPeriod === "yearly" ? "yearly" : data.billingPeriod === "monthly" ? "monthly" : undefined,

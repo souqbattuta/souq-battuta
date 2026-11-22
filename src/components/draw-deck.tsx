@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { Product, Shop } from "@/lib/data";
-import { priceLabel } from "@/lib/data";
+import { priceLabel, displayPlan } from "@/lib/data";
 import { cryptoSeed, shuffled } from "@/lib/near";
 import { DEFAULT_ALGO_ORDER, type AlgoLever } from "@/lib/shelves";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { DuckRating } from "@/components/duck-rating";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { HeartIcon } from "@/components/heart";
 import { StallPeek } from "@/components/shop-shelf";
 import { OptImg } from "@/components/opt-img";
@@ -272,11 +272,11 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
                         <span className="stall-phone-shot">
                           <OptImg className="stall-phone-pic" src={image} alt="" />
                           <OptImg className="stall-phone-avatar" src={shop.avatar} alt="" />
-                          <PlanStamp plan={shop.plan} className="plan-badge stall-phone-crown" />
+                          <PlanBadge plan={displayPlan(shop.plan)} size="phone" />
                         </span>
                         <span className={ar ? "stall-card-name font-arabic" : "stall-card-name"}>{name}</span>
                         <span className="stall-card-meta">
-                          {shop.plan !== "free" && (
+                          {displayPlan(shop.plan) !== "free" && (
                             <span className="stall-card-rating">
                               <DuckRating score={rating} size={12} />
                               {count > 0 && <em>{rating}</em>}
@@ -293,11 +293,11 @@ export function DrawDeck({ shops, ar }: { shops: Shop[]; ar: boolean }) {
               return (
                 <button key={card.key} type="button" className="stall-card draw-card photo-open" aria-label={photoControlName(ar ? "ar" : "en", ar ? shop.nameAr : shop.name, item ? (ar ? item.nameAr : item.name) : undefined)} onClick={() => setOpen(at)}>
                   <span className="stall-card-catrow">
-                    <PlanStamp plan={shop.plan} className="plan-badge" />
+                    <PlanBadge plan={displayPlan(shop.plan)} size="card" />
                   </span>
                   <OptImg src={image} alt="" />
                   <b className={ar ? "font-arabic" : undefined}>{title}</b>
-                  {shop.plan !== "free" && (
+                  {displayPlan(shop.plan) !== "free" && (
                     <span className="stall-card-meta">
                       <Rating shop={shop} />
                     </span>
@@ -413,7 +413,7 @@ function DrawPop({
           <div className="draw-copy">
             <b>{ar ? shop.nameAr : shop.name}</b>
             {(shop.bio || shop.bioAr) && <p>{ar ? shop.bioAr || shop.bio : shop.bio}</p>}
-            {shop.plan !== "free" && (
+            {displayPlan(shop.plan) !== "free" && (
               <p className="draw-rate">
                 <DuckRating score={rating} size={18} />
                 <span>{rating}</span>

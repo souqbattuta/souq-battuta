@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { OFFERED_PLANS, PLANS, normalizePlan, type PlanId } from "@/lib/data";
+import { OFFERED_PLANS, PLANS, displayPlan, normalizePlan, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { checkPromo, type PromoCode } from "@/lib/promo-codes";
 import { Shell } from "@/components/site-header";
-import { PlanStamp } from "@/components/plan-stamp";
+import { PlanBadge } from "@/components/plan-stamp";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { cn } from "@/lib/cn";
 
@@ -203,7 +203,7 @@ function SellerPlanPage() {
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-display text-2xl">{ar ? item.nameAr : item.name}</span>
                   {item.badge !== "none" ? (
-                    <PlanStamp plan={id} className="plan-badge profile-badge" />
+                    <PlanBadge plan={displayPlan(id)} size="profile" />
                   ) : (
                     <span className="plan-badge profile-badge" aria-hidden="true" />
                   )}
