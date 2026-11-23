@@ -1357,18 +1357,20 @@ function ReviewList({ shop }: { shop: Shop }) {
   const voteReview = useSession((s) => s.voteReview);
   const reportReview = useSession((s) => s.reportReview);
   const deleteReview = useSession((s) => s.deleteReview);
+  const [gone, setGone] = useState<string[]>([]);
+  const serverIds = new Set((shop.reviews ?? []).map((review) => review.id).filter((id): id is string => Boolean(id)));
   const rows = [
     ...(shop.reviews ?? []).map((review, index) => ({
       ...review,
-      key: `${shop.slug}:${index}`,
-      own: false,
-      id: "",
+      key: `${shop.slug}:${review.id || index}`,
+      own: Boolean(review.mine),
+      id: review.id || "",
       authorPhone: "",
     })),
     ...ownReviews
-      .filter((review) => review.shopSlug === shop.slug)
+      .filter((review) => review.shopSlug === shop.slug && !serverIds.has(review.id))
       .map((review) => ({ ...review, key: `${shop.slug}:${review.id}`, own: true, reply: undefined as string | undefined })),
-  ].filter((review) => !removed.includes(review.key));
+  ].filter((review) => !removed.includes(review.key) && !gone.includes(review.id));
 
   return (
     <ul className="mt-4 divide-y divide-line">
@@ -1407,8 +1409,17 @@ function ReviewList({ shop }: { shop: Shop }) {
               >
                 {t.report}
               </button>
-              {review.own && (
-                <button type="button" className="h-8 rounded-md border border-line px-2 text-red" onClick={() => deleteReview(review.id)}>
+              {review.id && review.own && (
+                <button
+                  type="button"
+                  className="h-8 rounded-md border border-line px-2 text-red"
+                  onClick={() => {
+                    const id = review.id;
+                    void deleteReview(id).then((res: { ok?: boolean }) => {
+                      if (res?.ok) setGone((ids) => (ids.includes(id) ? ids : [...ids, id]));
+                    });
+                  }}
+                >
                   {t.deleteReview}
                 </button>
               )}

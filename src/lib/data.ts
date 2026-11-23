@@ -66,6 +66,9 @@ export type Review = {
   score: number;
   comment: string;
   reply?: string;
+  id?: string;
+  /** True only for the signed-in author. The phone is not sent to the page. */
+  mine?: boolean;
 };
 
 export type Shop = {

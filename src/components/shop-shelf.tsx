@@ -7,6 +7,7 @@ import { HeartIcon } from "@/components/heart";
 import { DuckRating } from "@/components/duck-rating";
 import { OptImg } from "@/components/opt-img";
 import { useSession } from "@/lib/session";
+import { copy } from "@/lib/i18n";
 import { photoControlName } from "@/lib/photo-label";
 import { absoluteUrl } from "@/lib/site";
 
@@ -422,6 +423,7 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
   const [copied, setCopied] = useState(false);
   const [listName, setListName] = useState("");
   const [visibility, setVisibility] = useState<"private" | "public">("private");
+  const [reportNote, setReportNote] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -496,7 +498,9 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
               type="button"
               onClick={() => {
                 if (needAccount() || reported) return;
-                reportStall(shop.slug);
+                void reportStall(shop.slug).then((res) => {
+                  if (res && res.ok === false && "error" in res && res.error === "rate") setReportNote(copy[ar ? "ar" : "en"].reportRate);
+                });
               }}
             >
               {reported ? (ar ? "تم الإبلاغ" : "Reported") : (ar ? "أبلغ" : "Report")}
@@ -539,7 +543,9 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
                   role="menuitem"
                   onClick={() => {
                     if (needAccount() || reported) return;
-                    reportStall(shop.slug);
+                    void reportStall(shop.slug).then((res) => {
+                      if (res && res.ok === false && "error" in res && res.error === "rate") setReportNote(copy[ar ? "ar" : "en"].reportRate);
+                    });
                   }}
                 >
                   {reported ? (ar ? "تم الإبلاغ" : "Reported") : (ar ? "أبلغ" : "Report")}
@@ -602,6 +608,7 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
           )}
         </div>
       )}
+      {reportNote && <p className="text-sm text-red" role="alert">{reportNote}</p>}
     </div>
   );
 }

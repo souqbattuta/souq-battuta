@@ -13,7 +13,7 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, editHello, helloQuota, listHello, listMyPlaces, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveMyPlace, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, deleteSouqReview, editHello, helloQuota, listHello, listMyPlaces, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveMyPlace, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
@@ -1135,14 +1135,15 @@ const useSession = create<any>()(
         });
         return { removed: true };
       },
-      reportStall: (slug: any) => {
+      reportStall: async (slug: any) => {
         const user = get().user;
         if (!user || user.role === "seller" || !slug) return { ok: false };
         const key = `stall:${slug}`;
         if ((get().reports ?? []).some((item: any) => item.key === key && item.by === user.phone)) return { ok: true };
+        const sent = await reportTarget({ data: { targetType: "shop", targetId: String(slug), reason: "shop" } });
+        if (!sent.ok) return sent;
         const report = { id: `rep-${Date.now()}`, key, comment: "stall", by: user.phone, at: Date.now(), removed: false };
         set({ reports: [report, ...get().reports ?? []] });
-        void reportTarget({ data: { targetType: "shop", targetId: String(slug), reason: "shop" } });
         withBuyer(get, set, {
           notes: [
             { id: `n-${Date.now()}`, title: "Report received", body: "Souq Battuta will look at this shop.", href: `/shop/${slug}`, at: Date.now() },
@@ -1151,33 +1152,40 @@ const useSession = create<any>()(
         });
         return { ok: true };
       },
-      addReview: (review: any) => {
+      addReview: async (review: any) => {
         const user = get().user;
-        if (!user || user.role === "seller") return;
+        if (!user || user.role === "seller") return { ok: false, error: "auth" };
         const shop = directoryShops(get().accounts).find((item) => item.slug === review.shopSlug);
-        if (!shop || !PLANS[shop.plan as keyof typeof PLANS]?.reviews) return;
+        if (!shop || !PLANS[shop.plan as keyof typeof PLANS]?.reviews) return { ok: false, error: "plan" };
+        const comment = String(review.comment ?? "").trim();
+        if (!comment) return { ok: false, error: "order" };
+        const res = await saveSouqReview({ data: { shopSlug: review.shopSlug, score: review.score, comment, area: user.city || "" } });
+        if (!res.ok) return res;
         const saved = {
-          id: `r-${Date.now()}`,
+          id: res.id,
           shopSlug: review.shopSlug,
           score: review.score,
-          comment: review.comment.trim(),
+          comment,
           user: user.displayName || user.username,
           area: user.city || "Amman",
           authorPhone: user.phone
         };
-        if (!saved.comment) return;
         const orders = review.orderId ? get().orders.map((order: any) => order.id === review.orderId ? { ...order, reviewed: true } : order) : get().orders;
+        const ownReviews = [saved, ...get().ownReviews.filter((item: any) => item.shopSlug !== saved.shopSlug || item.authorPhone !== user.phone)];
         withBuyer(get, set, {
-          ownReviews: [saved, ...get().ownReviews],
+          ownReviews,
           orders,
           notes: [{ id: `n-${Date.now()}`, title: "Review posted", body: saved.comment, href: `/shop/${saved.shopSlug}`, at: Date.now() }, ...get().notes]
         });
-        void saveSouqReview({ data: { shopSlug: saved.shopSlug, score: saved.score, comment: saved.comment, authorName: saved.user, area: saved.area } });
+        return { ok: true };
       },
-      deleteReview: (id: any) => {
+      deleteReview: async (id: any) => {
         const user = get().user;
+        if (!user || !id) return { ok: false };
         const review = get().ownReviews.find((item: any) => item.id === id);
-        if (!user || !review || review.authorPhone !== user.phone) return { ok: false };
+        if (review && review.authorPhone !== user.phone) return { ok: false };
+        const res = await deleteSouqReview({ data: { id: String(id) } });
+        if (!res.ok) return { ok: false };
         withBuyer(get, set, { ownReviews: get().ownReviews.filter((item: any) => item.id !== id) });
         return { ok: true };
       },
@@ -1805,7 +1813,12 @@ const useSession = create<any>()(
           const value = clean[key];
           if (typeof value === "string" && value.startsWith("data:")) {
             const up = await uploadListingImage({ data: { dataUrl: value, kind: "listing" } });
-            clean[key] = up.ok ? up.url : "";
+            if (!up.ok) {
+              if ("error" in up && up.error === "rate") return { ok: false as const, error: "rate" as const };
+              delete clean[key];
+            } else {
+              clean[key] = up.url;
+            }
           }
         }
         const next = { ...account, ...clean };
@@ -1955,8 +1968,10 @@ const useSession = create<any>()(
         }
         if (changed) set({ accounts });
       },
-      reportHello: (id: any) => {
-        void reportTarget({ data: { targetType: "hello", targetId: String(id), reason: "hello" } });
+      reportHello: async (id: any) => {
+        const sent = await reportTarget({ data: { targetType: "hello", targetId: String(id), reason: "hello" } });
+        if (!sent.ok) return sent;
+        return { ok: true as const };
       },
       loadHello: async (cursor = 0) => {
         const res = await listHello({ data: { limit: 20, cursor, follows: get().follows ?? [], words: get().interestWords ?? [] } });

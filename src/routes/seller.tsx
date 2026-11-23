@@ -93,6 +93,7 @@ function SellerDesk() {
   const [choices, setChoices] = useState<DraftChoice[]>([]);
   const [chart, setChart] = useState<string | null>(null);
   const [listError, setListError] = useState("");
+  const [photoError, setPhotoError] = useState("");
   const [listOk, setListOk] = useState(false);
   const [hideFor, setHideFor] = useState("");
   const [hideReason, setHideReason] = useState<"unavailable" | "stock" | "sold">("unavailable");
@@ -262,7 +263,9 @@ function SellerDesk() {
           ? (ar ? `هذه الخطة تسمح بـ ${plan.listings} منتجات.` : `This plan allows ${plan.listings} listings.`)
           : code === "storage" || code === "type" || code === "size"
             ? (ar ? "الصورة ما انحفظت. جرب صورة أصغر." : "The photo was not saved. Try a smaller one.")
-            : code === "paused"
+            : code === "rate"
+              ? t.photoRate
+              : code === "paused"
               ? (ar ? "الدكان متوقف." : "Your shop is paused.")
               : code === "name" || !code
                 ? (ar ? "الاسم لازم يكون حرفين على الأقل." : "Add a name of at least 2 letters.")
@@ -572,8 +575,9 @@ function SellerDesk() {
             )}
             {editPane === "photo" && plan.photo && (
               <div className="mt-4 grid gap-6">
-                <PhotoStudio label={ar ? "صورة الغلاف" : "Header"} shape="header" src={account?.stallCover || ""} frameId={`cover:${profileSlug}`} onSrc={(src) => setStall({ stallCover: src })} />
-                <PhotoStudio label={ar ? "صورة الدكان" : "Profile photo"} shape="avatar" src={account?.stallAvatar || ""} frameId={`avatar:${profileSlug}`} onSrc={(src) => setStall({ stallAvatar: src })} />
+                <PhotoStudio label={ar ? "صورة الغلاف" : "Header"} shape="header" src={account?.stallCover || ""} frameId={`cover:${profileSlug}`} onSrc={(src) => { void setStall({ stallCover: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : "")); }} />
+                <PhotoStudio label={ar ? "صورة الدكان" : "Profile photo"} shape="avatar" src={account?.stallAvatar || ""} frameId={`avatar:${profileSlug}`} onSrc={(src) => { void setStall({ stallAvatar: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : "")); }} />
+                {photoError && <p className="text-sm text-red" role="alert">{photoError}</p>}
               </div>
             )}
             {editPane === "photo" && !plan.photo && <p className="mt-4 text-sm text-mute">{ar ? "صورة الملف تفتح من الأساسي." : "A profile photo opens on Basic."}</p>}

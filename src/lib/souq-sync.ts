@@ -10,6 +10,7 @@ import { effectivePlan } from "@/lib/hello-archive";
 import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
 import { assignShopSlug, renameShopSlug } from "@/lib/shop-slug";
 import { slugHasPhone } from "@/lib/site";
+import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -1313,27 +1314,53 @@ export const saveSouqReview = createServerFn({ method: "POST" })
       shopSlug: z.string().trim().min(2).max(80),
       score: z.number().int().min(1).max(5),
       comment: z.string().trim().min(1).max(500),
-      authorName: z.string().trim().min(1).max(80),
       area: z.string().trim().max(80).optional(),
     }),
   )
   .handler(async ({ data }) => {
+    const s = await kit();
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account || account.role !== "buyer") return { ok: false as const, error: "auth" as const };
     const shops = await sql<{ plan: string | null }>`select plan from souq_shops where slug = ${data.shopSlug} limit 1`;
-    if (shops[0]?.plan !== "pro" && shops[0]?.plan !== "grow" && shops[0]?.plan !== "premium") return { ok: false as const, error: "plan" as const };
-    const s = await kit();
-    const id = `r-${s.randomBytes(8).toString("hex")}`;
-    await sql`
-      insert into souq_reviews (id, shop_slug, author_phone, author_name, area, score, comment)
-      values (${id}, ${data.shopSlug}, ${phone}, ${data.authorName}, ${data.area ?? ""}, ${data.score}, ${data.comment})
+    if (!shopAcceptsReviews(shops[0]?.plan)) return { ok: false as const, error: "plan" as const };
+    const ip = clientIp(s);
+    const authorName = reviewAuthorName(account.data);
+    const area = String(account.data?.city ?? "").trim().slice(0, 80);
+    const existing = await sql<{ id: string }>`
+      select id from souq_reviews where shop_slug = ${data.shopSlug} and author_phone = ${phone} limit 1
     `;
-    await sql`
-      insert into souq_views (shop_slug, review_count) values (${data.shopSlug}, 1)
-      on conflict (shop_slug) do update set review_count = souq_views.review_count + 1
+    const ordered = await sql<{ id: string }>`
+      select id from souq_orders
+      where shop_slug = ${data.shopSlug} and buyer_phone = ${phone} and status = 'done'
+      limit 1
     `;
-    return { ok: true as const, id };
+    if (!ordered[0]) return { ok: false as const, error: "order" as const };
+    if (!(await allowReviewWrite((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, phone))) {
+      return { ok: false as const, error: "rate" as const };
+    }
+    const saved = await writeBuyerReview(sql, {
+      phone,
+      shopSlug: data.shopSlug,
+      score: data.score,
+      comment: data.comment,
+      authorName,
+      area,
+      id: existing[0]?.id || `r-${s.randomBytes(8).toString("hex")}`,
+    });
+    if (!saved.ok) return saved;
+    return { ok: true as const, id: saved.id };
+  });
+
+export const deleteSouqReview = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().trim().min(2).max(40) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    return deleteBuyerReview(sql, data.id, phone);
   });
 
 export const submitSouqPayment = createServerFn({ method: "POST" })
@@ -1523,6 +1550,9 @@ async function storeImage(dataUrl: string, kind: "listing" | "hello") {
     type = "image/webp";
   } catch {
     return { ok: false as const, error: "type" as const };
+  }
+  if (!(await allowPhotoUpload((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), phone))) {
+    return { ok: false as const, error: "rate" as const };
   }
   const id = s.randomBytes(8).toString("hex");
   const token = process.env.BLOB_READ_WRITE_TOKEN;
@@ -1967,20 +1997,23 @@ export const reportTarget = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
-    const id = `rp-${s.randomBytes(6).toString("hex")}`;
-    await sql`
-      insert into souq_reports (id, target_type, target_id, reporter_phone, reason)
-      values (${id}, ${data.targetType}, ${data.targetId}, ${phone}, ${data.reason ?? ""})
-      on conflict (target_type, target_id, reporter_phone) do nothing
+    const ip = clientIp(s);
+    const prior = await sql<{ id: string }>`
+      select id from souq_reports
+      where target_type = ${data.targetType} and target_id = ${data.targetId} and reporter_phone = ${phone}
+      limit 1
     `;
-    const counts = await sql<{ n: number }>`
-      select count(distinct reporter_phone)::int as n from souq_reports
-      where target_type = ${data.targetType} and target_id = ${data.targetId} and status = 'open'
-    `;
-    if (Number(counts[0]?.n ?? 0) >= 3) {
-      if (data.targetType === "hello") await sql`update souq_hello_posts set status = 'hidden' where id = ${data.targetId}`;
-      else await sql`update souq_shops set hidden = true where slug = ${data.targetId}`;
+    if (!prior[0] && !(await allowReport((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, phone))) {
+      return { ok: false as const, error: "rate" as const };
     }
+    const id = `rp-${s.randomBytes(6).toString("hex")}`;
+    await fileReport(sql, {
+      id,
+      targetType: data.targetType,
+      targetId: data.targetId,
+      phone,
+      reason: data.reason ?? "",
+    });
     return { ok: true as const };
   });
 

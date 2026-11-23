@@ -110,19 +110,25 @@ function ReviewBox({
 }: {
   orderId: string;
   shopSlug: string;
-  onSave: (review: { shopSlug: string; score: number; comment: string; orderId?: string }) => void;
+  onSave: (review: { shopSlug: string; score: number; comment: string; orderId?: string }) => Promise<{ ok?: boolean; error?: string } | void> | { ok?: boolean; error?: string } | void;
 }) {
   const t = copy[useSession((s) => s.lang)];
   const [score, setScore] = useState(5);
+  const [error, setError] = useState("");
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const comment = String(new FormData(e.currentTarget).get("comment") ?? "");
-    onSave({ shopSlug, score, comment, orderId });
+    const res = await onSave({ shopSlug, score, comment, orderId });
+    if (res && res.ok === false && (res.error === "order" || res.error === "rate")) {
+      setError(t.reviewHold);
+      return;
+    }
+    setError("");
   }
 
   return (
-    <form className="mt-2 space-y-2" onSubmit={onSubmit}>
+    <form className="mt-2 space-y-2" onSubmit={(event) => void onSubmit(event)}>
       <select className="h-10 rounded-md border border-line bg-white px-2 text-sm" value={score} onChange={(e) => setScore(Number(e.target.value))}>
         {[5, 4, 3, 2, 1].map((n) => (
           <option key={n} value={n}>
@@ -131,6 +137,7 @@ function ReviewBox({
         ))}
       </select>
       <textarea name="comment" required rows={2} className="w-full rounded-md border border-line px-3 py-2 text-sm" />
+      {error && <p className="text-sm text-red" role="alert">{error}</p>}
       <button type="submit" className="h-10 rounded-md bg-ink px-3 text-sm font-semibold text-cream">
         {t.reviews}
       </button>

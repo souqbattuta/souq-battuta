@@ -18,6 +18,7 @@ import {
   type HelloPost,
 } from "@/lib/hello";
 import { directoryShops, useSession } from "@/lib/session";
+import { copy } from "@/lib/i18n";
 import { SquareCrop } from "@/components/photo-frame";
 import { OptImg } from "@/components/opt-img";
 import { PlanBadge } from "@/components/plan-stamp";
@@ -706,6 +707,7 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
   const feed = useSession((s) => s.helloFeed) ?? [];
   const shops = useMemo(() => directoryShops(accounts), [accounts]);
   const [now, setNow] = useState(() => Date.now());
+  const [reportNote, setReportNote] = useState("");
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
@@ -815,6 +817,7 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
         ))}
       </div>
       {ordered.length === 0 && <p className="hw-note">{ar ? "ما في شي على اللوح بعد." : "Nothing on the board yet."}</p>}
+      {reportNote && <p className="hw-note text-red" role="alert">{reportNote}</p>}
       <div className="hw-list">
         {ordered.map((post, index) => {
           const shop = shopBySlug(shops, post.shopSlug);
@@ -847,8 +850,13 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
                     }
                     reported={reported.includes(post.id) || !!post.reported}
                     onReport={() => {
-                      reportHello(post.id);
-                      setReported((ids) => [...ids, post.id]);
+                      void reportHello(post.id).then((res) => {
+                        if (res && res.ok === false && res.error === "rate") {
+                          setReportNote(copy[lang === "ar" ? "ar" : "en"].reportRate);
+                          return;
+                        }
+                        setReported((ids) => [...ids, post.id]);
+                      });
                     }}
                   />
                 </div>
@@ -916,8 +924,13 @@ export function HelloFeed({ tab, at, post: postId }: { tab: "for-you" | "recent"
           }}
           reportedIds={reported}
           onReport={(id) => {
-            reportHello(id);
-            setReported((ids) => (ids.includes(id) ? ids : [...ids, id]));
+            void reportHello(id).then((res) => {
+              if (res && res.ok === false && res.error === "rate") {
+                setReportNote(copy[lang === "ar" ? "ar" : "en"].reportRate);
+                return;
+              }
+              setReported((ids) => (ids.includes(id) ? ids : [...ids, id]));
+            });
           }}
         />
       )}

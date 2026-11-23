@@ -181,14 +181,16 @@ export async function loadShopPage(slug: string, viewerPhone: string | null) {
      order by created_at asc`,
     [slug],
   );
-  const reviews = await sql.query<{ author_name: string; area: string; score: number; comment: string }>(
-    `select author_name, area, score, comment from souq_reviews where shop_slug = $1 order by created_at asc limit 30`,
+  const reviews = await sql.query<{ id: string; author_phone: string; author_name: string; area: string; score: number; comment: string }>(
+    `select id, author_phone, author_name, area, score, comment from souq_reviews where shop_slug = $1 order by created_at asc limit 30`,
     [slug],
   );
   const shop = toShop(
     row,
     listings.map(toProduct).filter((item) => !item.paused && !item.hideReason),
     reviews.map((review) => ({
+      id: review.id,
+      mine: Boolean(viewerPhone && review.author_phone === viewerPhone),
       user: review.author_name || "Buyer",
       area: review.area || "",
       score: Number(review.score) || 0,
