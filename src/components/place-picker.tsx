@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type * as Leaflet from "leaflet";
 import { Link } from "@tanstack/react-router";
+import { useSession } from "@/lib/session";
 import { areaLabel, matchAreas, nearestArea, type AmmanArea } from "@/lib/near";
 
 type Pin = { lat: number; lng: number; label: string };
