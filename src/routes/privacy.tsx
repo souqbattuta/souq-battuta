@@ -15,6 +15,7 @@ function PrivacyPage() {
         ["كيف منشارك المعلومات", "نشارك رقم واتساب المحل مع المشتري المسجّل فقط عندما يؤكد طلبه أو استفساره، حتى يفتح واتساب المحادثة."],
         ["التقييمات", "اللي كتب التقييم هو الوحيد اللي بقدر يحذفه. إذا انبلّغ التقييم وطلع فيه كلام بذيء، سوق بطوطة بتشيله. البلاغ بدون بذاءة ما بحذف التقييم."],
         ["العنوان", "العنوان المحفوظ بينبعت بس إذا اخترت تضيفه وأنت بتأكد الطلب. ما بنطلب عنوانك أو كلمة سرك برسالة خارج الموقع."],
+        ["الموقع", "إذا حفظت أماكن، بتنحفظ بحسابك لتستعملها من أي تلفون. ما حدا بيشوفها غيرك وبتقدر تحذفها أي وقت. موقعك بيوصل للمحل بس لما تختار مكان بطلب انت بتبعثه."],
         ["البائعون", "سوق بطوطة ما بتضمن البائع. المشتري مسؤول يتأكد قبل ما يشتري."],
       ]
     : [
@@ -24,6 +25,7 @@ function PrivacyPage() {
         ["How we share information", "A shop's WhatsApp number is shared with a signed-in buyer only when they confirm an order or inquiry, so their WhatsApp can open the chat."],
         ["Reviews", "Only the person who wrote a review can delete it. If a review is reported and the words are profane, Souq Battuta may take it down. A report without profanity does not delete it."],
         ["Addresses", "A saved address is sent only if you choose to add it when you confirm an order. We will not ask for your address or password in a message outside this site."],
+        ["Location", "If you save places, they are stored in your account so you can use them on any phone. Only you can see them, and you can delete them anytime. Your location is shared with a shop only when you choose a place in an order you send."],
         ["Sellers", "Souq Battuta does not vouch for a seller. The buyer checks before they buy."],
       ];
   return (

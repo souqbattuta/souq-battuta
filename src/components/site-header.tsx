@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
@@ -384,6 +384,11 @@ export function Shell({ children }: { children: ReactNode }) {
   const showBack = path !== "/" && path !== "/home";
   const sellerDesk = path === "/seller" || path.startsWith("/seller/");
   const shopPage = path.startsWith("/shop/");
+  const user = useSession((s) => s.user);
+  const loadPlaces = useSession((s) => s.loadPlaces);
+  useEffect(() => {
+    if (user?.role === "buyer") void loadPlaces();
+  }, [user?.phone, user?.role, loadPlaces]);
   return (
     <div className={cn("site-shell flex flex-col", shopPage && "is-shop", lang === "ar" ? "dir-rtl" : "dir-ltr")}>
       <SiteHeader />

@@ -1,93 +1,130 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import type { Shop } from "@/lib/data";
 import { nearest } from "@/lib/near";
 import { useSession } from "@/lib/session";
 import { LocationPicker } from "@/components/location-picker";
+import { SavePlaceSheet } from "@/components/place-picker";
 import { ShopShelf } from "@/components/shop-shelf";
 
-type Pin = { lat: number; lng: number; label?: string };
+type Pin = { lat: number; lng: number; label: string };
+const VISIT = "souq-near-visit";
+const LAST = "souq-last-place";
+
+function readPin(): Pin | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(VISIT) || "null");
+    if (raw && typeof raw.lat === "number" && typeof raw.lng === "number" && raw.label) return raw;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function placeName(name: string) {
+  if (name === "Home") return "Home · البيت";
+  if (name === "Work") return "Work · الشغل";
+  return name;
+}
 
 export function NearPanel({ shops, ar, shelf = "near", windowed = false }: { shops: Shop[]; ar: boolean; shelf?: string; windowed?: boolean }) {
+  const user = useSession((s) => s.user);
   const addresses = useSession((s) => s.addresses);
-  const saved = addresses.filter((item) => item.lat != null && item.lng != null);
-  const [mode, setMode] = useState<"saved" | "pin">(saved.length ? "saved" : "pin");
-  const [savedId, setSavedId] = useState(saved[0]?.id ?? "");
-  const [here, setHere] = useState<Pin | null>(null);
-  const [pin, setPin] = useState<Pin | null>(null);
-  const [gpsNote, setGpsNote] = useState("");
+  const saved = addresses.filter((item: { lat?: number }) => item.lat != null);
+  const [origin, setOrigin] = useState<Pin | null>(null);
+  const [picker, setPicker] = useState(false);
+  const [draft, setDraft] = useState<Pin | null>(null);
+  const [guestLink, setGuestLink] = useState(false);
+  const signedIn = user?.role === "buyer";
+  const ready = useRef(false);
 
-  const chosen = saved.find((item) => item.id === savedId) ?? saved[0];
-  const origin: Pin | null =
-    mode === "pin" ? pin : chosen ? { lat: chosen.lat!, lng: chosen.lng!, label: chosen.name } : here;
-
-  const ranked = useMemo(() => (origin ? nearest(shops, origin) : []), [shops, origin?.lat, origin?.lng]);
-  const distances = Object.fromEntries(ranked.map((item) => [item.shop.slug, item.km]));
-
-  function useHere() {
-    setGpsNote("");
-    if (!navigator.geolocation) {
-      setGpsNote(ar ? "الموقع غير متاح على هذا الجهاز." : "Location is not available on this device.");
+  useEffect(() => {
+    if (ready.current) return;
+    const visit = readPin();
+    if (!signedIn) {
+      setOrigin(visit);
+      ready.current = true;
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (geo) => {
-        setHere({ lat: geo.coords.latitude, lng: geo.coords.longitude, label: ar ? "موقعي الآن" : "Where I am" });
-        setGpsNote("");
-      },
-      () => setGpsNote(ar ? "اسمح بالموقع، أو ثبّت مكاناً جديداً." : "Allow location, or drop a new pin."),
-      { enableHighAccuracy: true, timeout: 12000 },
-    );
+    let last = "";
+    try { last = sessionStorage.getItem(LAST) || ""; } catch { /* ignore */ }
+    if (!last) {
+      setOrigin(visit);
+      ready.current = true;
+      return;
+    }
+    const place = saved.find((item: { id: string }) => item.id === last);
+    if (!place) return;
+    setOrigin({ lat: place.lat, lng: place.lng, label: place.line || place.name });
+    ready.current = true;
+  }, [signedIn, saved]);
+
+  const ranked = useMemo(() => (origin ? nearest(shops, origin) : []), [shops, origin]);
+  const distances = Object.fromEntries(ranked.map((item) => [item.shop.slug, item.km]));
+
+  function choose(pin: Pin, placeId?: string) {
+    setOrigin(pin);
+    try {
+      sessionStorage.setItem(VISIT, JSON.stringify(pin));
+      if (placeId) sessionStorage.setItem(LAST, placeId);
+    } catch { /* ignore */ }
   }
 
   return (
     <div className="near-panel">
-      <div className="near-modes" role="tablist">
-        <button type="button" role="tab" aria-selected={mode === "saved"} className={mode === "saved" ? "cat-pick is-on" : "cat-pick"} onClick={() => setMode("saved")}>
-          <b>{ar ? "موقعي" : "My location"}</b>
+      {!origin ? (
+        <button type="button" className="near-choose" onClick={() => setPicker(true)}>
+          <b>Choose your area · اختر منطقتك</b>
+          <span>See shops close to you · شوف المحلات القريبة منك</span>
         </button>
-        <button type="button" role="tab" aria-selected={mode === "pin"} className={mode === "pin" ? "cat-pick is-on" : "cat-pick"} onClick={() => setMode("pin")}>
-          <b>{ar ? "مكان جديد" : "New location"}</b>
-        </button>
-      </div>
-
-      {mode === "saved" ? (
-        <div className="near-saved">
-          {saved.length > 1 && (
-            <label>
-              <span>{ar ? "العنوان المحفوظ" : "Saved address"}</span>
-              <select value={chosen?.id ?? ""} onChange={(event) => setSavedId(event.target.value)}>
-                {saved.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          {saved.length === 1 && <p className="home-note">{chosen?.name} · {chosen?.line}</p>}
-          {saved.length === 0 && (
-            <p className="home-note">{ar ? "ما في عنوان محفوظ. استخدم مكانك الآن، أو ثبّت مكاناً جديداً." : "No saved address. Use where you are, or drop a new pin."}</p>
-          )}
-          <button type="button" className="near-here" onClick={useHere}>{ar ? "موقعي الآن" : "Where I am now"}</button>
-          {gpsNote && <p className="home-note">{gpsNote}</p>}
-        </div>
       ) : (
-        <LocationPicker
-          mode="area"
-          searchLabel={ar ? "ابحث عن المكان" : "Search a place"}
-          locateLabel={ar ? "موقعي الآن" : "Where I am"}
-          hint={ar ? "ثبّت الدبوس. ما ينحفظ على ملفك." : "Drop the pin. This is not saved on your profile."}
-          onPick={(lat, lng, label) => setPin({ lat, lng, label })}
-        />
+        <div className="near-chosen">
+          <button type="button" className="near-chip" onClick={() => setPicker(true)}>📍 {origin.label} ▾</button>
+          {signedIn && (
+            <div className="near-places">
+              {saved.map((item: { id: string; name: string; line?: string; lat: number; lng: number }) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.line === origin.label || item.name === origin.label ? "is-on" : ""}
+                  onClick={() => choose({ lat: item.lat, lng: item.lng, label: item.line || item.name }, item.id)}
+                >
+                  {placeName(item.name)}
+                </button>
+              ))}
+              <button type="button" onClick={() => setPicker(true)}>+ {ar ? "أضف" : "Add"}</button>
+            </div>
+          )}
+        </div>
       )}
 
-      {!origin ? (
-        <p className="home-note">{ar ? "اختَر مكاناً لترى القريب." : "Choose a place to see what is close."}</p>
-      ) : ranked.length === 0 ? (
-        <p className="home-note">{ar ? "ما في دكاكين بهالقسم بعد." : "No stalls in this aisle yet."}</p>
-      ) : (
+      {origin && ranked.length > 0 && (
         <>
-          <p className="home-shelf-note">{ar ? "الأقرب أولاً" : "Closest first"}{origin.label ? ` · ${origin.label}` : ""}</p>
+          <p className="home-shelf-note">{ar ? "الأقرب أولاً" : "Closest first"} · {origin.label}</p>
           <ShopShelf id={shelf} shops={ranked.map((item) => item.shop)} ar={ar} distances={distances} windowed={windowed} />
         </>
+      )}
+
+      {picker && (
+        <LocationPicker
+          mode="fullscreen"
+          searchLabel=""
+          locateLabel=""
+          hint=""
+          onClose={() => setPicker(false)}
+          onPick={(lat, lng, label) => {
+            const pin = { lat, lng, label: label || (ar ? "عمّان" : "Amman") };
+            choose(pin);
+            setPicker(false);
+            if (signedIn) setDraft(pin);
+            else setGuestLink(true);
+          }}
+        />
+      )}
+      {draft && signedIn && (
+        <SavePlaceSheet pin={draft} onClose={() => setDraft(null)} onDone={() => setDraft(null)} />
+      )}
+      {guestLink && !signedIn && (
+        <p className="home-note"><Link to="/sign-in">{ar ? "سجّل دخولك لتحفظ أماكنك" : "Log in to save places"}</Link></p>
       )}
     </div>
   );

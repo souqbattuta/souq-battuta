@@ -7,7 +7,6 @@ import { PlanBadge } from "@/components/plan-stamp";
 import { FramedImage } from "@/components/photo-frame";
 import { DuckRating } from "@/components/duck-rating";
 import { HeartIcon } from "@/components/heart";
-import { AddressDialog } from "@/components/location-picker";
 import { WhatsAppCta } from "@/components/wa-sheet";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";

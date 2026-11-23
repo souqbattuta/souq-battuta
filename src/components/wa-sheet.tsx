@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
 import { cn } from "@/lib/cn";
+import { LocationPicker } from "@/components/location-picker";
+import { SavePlaceSheet } from "@/components/place-picker";
 
 const GREET = "★★★ *Hello from Souq Battuta* ★★★";
 const GREET_AR = "★★★  *هلا بيك من سوق بطوطة*  ★★★";
@@ -67,6 +69,17 @@ export function WhatsAppCta({
   const [locNote, setLocNote] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [fresh, setFresh] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [savePin, setSavePin] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const deliver = fulfillment !== "pickup" && shop.handoff !== "pickup";
+  useEffect(() => {
+    if (addressId || !addresses.length) return;
+    let last = "";
+    try { last = sessionStorage.getItem("souq-last-place") || ""; } catch { /* ignore */ }
+    const found = addresses.find((item) => item.id === last) ?? addresses[0];
+    if (found) setAddressId(found.id);
+  }, [addresses, addressId]);
 
   if (!user) {
     return (
@@ -87,15 +100,17 @@ export function WhatsAppCta({
     return sum + line.product.price * line.qty;
   }, 0);
   const grand = itemsTotal + (deliveryFee?.amount ?? 0);
-  const picked = lockAddress ? addressPick : addresses.find((item) => item.id === addressId) ?? null;
+  const picked = lockAddress ? addressPick : addressId === "fresh" ? null : addresses.find((item) => item.id === addressId) ?? null;
   const pin =
-    !lockAddress && addressId === "current"
+    addressId === "fresh" && fresh
+      ? fresh
+      : !lockAddress && addressId === "current"
       ? live
       : picked?.lat != null && picked.lng != null
         ? { lat: picked.lat, lng: picked.lng }
         : null;
   const mapUrl = pin ? `https://www.google.com/maps?q=${pin.lat},${pin.lng}` : "";
-  const addressName = !lockAddress && addressId === "current" ? t.currentLocation : picked?.name;
+  const addressName = addressId === "fresh" ? fresh?.label : !lockAddress && addressId === "current" ? (lang === "ar" ? "موقعي" : "My location") : picked?.name;
   const orderText = lines
     .map((line) => {
       const label = lang === "ar" ? line.product.nameAr : line.product.name;
@@ -174,38 +189,42 @@ export function WhatsAppCta({
             <OrderText text={orderMessage} />
           </div>
         </div>
-        {!lockAddress && (
-          <label className="mt-3 block text-sm">
-            <span className="mb-1 block font-semibold">{t.addAddress}</span>
-            <select
-              className="h-11 w-full rounded-md border border-line bg-white px-3"
-              value={addressId}
-              onChange={(e) => {
-                const next = e.target.value;
-                setAddressId(next);
-                setLocNote("");
-                if (next !== "current") return;
-                if (!navigator.geolocation) {
-                  setLocNote("Location is not available on this device.");
-                  return;
-                }
-                navigator.geolocation.getCurrentPosition(
-                  (geo) => setLive({ lat: geo.coords.latitude, lng: geo.coords.longitude }),
-                  () => setLocNote("Allow location to add where you are."),
-                  { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-                );
-              }}
-            >
-              <option value="">{t.address}</option>
+        {deliver && !lockAddress && (
+          <div className="mt-3">
+            <p className="mb-1 text-sm font-semibold">{lang === "ar" ? "التوصيل إلى" : "Deliver to"}</p>
+            <div className="near-places">
               {addresses.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
+                <button key={item.id} type="button" className={addressId === item.id ? "is-on" : ""} onClick={() => { setAddressId(item.id); setLive(null); try { sessionStorage.setItem("souq-last-place", item.id); } catch { /* ignore */ } }}>
+                  {item.name === "Home" ? "Home · البيت" : item.name === "Work" ? "Work · الشغل" : item.name}
+                </button>
               ))}
-              <option value="current">{t.currentLocation}</option>
-            </select>
+              <button type="button" onClick={() => setAdding(true)}>+ {lang === "ar" ? "أضف مكاناً" : "Add a place"}</button>
+              {addresses.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocNote("");
+                    if (!navigator.geolocation) {
+                      setLocNote(lang === "ar" ? "الموقع مطفي. ابحث أو حرّك الخريطة." : "Location is off. Search or move the map.");
+                      return;
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                      (geo) => {
+                        const pin = { lat: geo.coords.latitude, lng: geo.coords.longitude, label: lang === "ar" ? "موقعي" : "My location" };
+                        setFresh(pin);
+                        setAddressId("fresh");
+                      },
+                      () => setLocNote(lang === "ar" ? "الموقع مطفي. ابحث أو حرّك الخريطة." : "Location is off. Search or move the map."),
+                      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+                    );
+                  }}
+                >
+                  {lang === "ar" ? "موقعي" : "Use my location"}
+                </button>
+              )}
+            </div>
             {locNote && <p className="mt-1 text-xs text-red">{locNote}</p>}
-          </label>
+          </div>
         )}
         <p className="mt-3 text-sm text-ink">This goes to the shop’s own WhatsApp. · تروح الرسالة على واتساب المحل مباشرة.</p>
         {sendError && <p className="mt-2 text-sm text-red">{sendError}</p>}
@@ -228,6 +247,25 @@ export function WhatsAppCta({
           </button>
           )}
         </div>
+        {adding && (
+          <LocationPicker
+            mode="fullscreen"
+            searchLabel=""
+            locateLabel=""
+            hint=""
+            onClose={() => setAdding(false)}
+            onPick={(lat, lng, label) => {
+              const pin = { lat, lng, label: label || (lang === "ar" ? "عمّان" : "Amman") };
+              setFresh(pin);
+              setAddressId("fresh");
+              setSavePin(pin);
+              setAdding(false);
+            }}
+          />
+        )}
+        {savePin && (
+          <SavePlaceSheet pin={savePin} onClose={() => setSavePin(null)} onDone={() => setSavePin(null)} />
+        )}
       </div>
     );
   }

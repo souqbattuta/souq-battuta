@@ -13,7 +13,7 @@ export type OptionSet = any;
 export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
-import { claimSouq, deleteHelloPost, deleteSouqListing, editHello, helloQuota, listHello, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
+import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, editHello, helloQuota, listHello, listMyPlaces, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveMyPlace, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
@@ -830,10 +830,12 @@ const useSession = create<any>()(
         if (!remote.ok) return remote;
         const account: any = { ...remote.account, usernameHistory: remote.account.usernameHistory ?? [] };
         delete account.password;
+        const leftover = [...(account.addresses ?? []), ...(get().addresses ?? [])].filter((item: any) => item?.lat != null && item?.name);
         set({
           user: toUser(account),
           ...buyerLists(account),
-          accounts: { ...get().accounts, [p]: account }
+          addresses: leftover,
+          accounts: { ...get().accounts, [p]: { ...account, addresses: [] } }
         });
         return { ok: true };
       },
@@ -844,6 +846,7 @@ const useSession = create<any>()(
         const s = get();
         const phone = s.user?.phone;
         const prev = phone ? s.accounts[phone] : void 0;
+        const packed = { ...buyerPack(s), addresses: [] };
         set({
           user: null,
           favorites: [],
@@ -857,7 +860,7 @@ const useSession = create<any>()(
             ...s.accounts,
             [phone]: {
               ...prev,
-              ...buyerPack(s),
+              ...packed,
               username: s.user.username,
               displayName: s.user.displayName || s.user.username,
               city: s.user.city || "",
@@ -964,23 +967,76 @@ const useSession = create<any>()(
         });
         return { ok: true };
       },
-      addAddress: (name: any, line: any, lat: any, lng: any) => {
-        const trimmed = name.trim();
-        const street = line.trim();
-        if (!trimmed || !street) return "";
-        const id = `a-${Date.now()}`;
-        const addresses = [{ id, name: trimmed, line: street, lat, lng }, ...get().addresses];
-        withBuyer(get, set, { addresses });
-        return id;
+      addAddress: async (name: any, line: any, lat: any, lng: any) => {
+        const trimmed = String(name ?? "").trim().slice(0, 30);
+        const street = String(line ?? "").trim().slice(0, 160);
+        if (!trimmed || lat == null || lng == null) return "";
+        try {
+          const res = await saveMyPlace({ data: { name: trimmed, label: street, lat: Number(lat), lng: Number(lng) } });
+          if (!res?.ok) return "";
+          const addresses = [res.place, ...get().addresses.filter((item: any) => item.id !== res.place.id)].slice(0, 10);
+          withBuyer(get, set, { addresses });
+          return res.place.id;
+        } catch {
+          return "";
+        }
       },
-      updateAddress: (id: any, name: any, line: any, lat: any, lng: any) => {
-        const trimmed = name.trim();
-        const street = line.trim();
-        if (!trimmed || !street) return;
-        const addresses = get().addresses.map((item: any) => item.id === id ? { ...item, name: trimmed, line: street, lat, lng } : item);
-        withBuyer(get, set, { addresses });
+      updateAddress: async (id: any, name: any, line: any, lat: any, lng: any) => {
+        const trimmed = String(name ?? "").trim().slice(0, 30);
+        const street = String(line ?? "").trim().slice(0, 160);
+        if (!trimmed || !id) return;
+        try {
+          const res = await saveMyPlace({ data: { id: String(id), name: trimmed, label: street, lat: Number(lat), lng: Number(lng) } });
+          if (!res?.ok) return;
+          const addresses = get().addresses.map((item: any) => item.id === id ? res.place : item);
+          withBuyer(get, set, { addresses });
+        } catch {
+          /* keep the list already on screen */
+        }
       },
-      removeAddress: (id: any) => withBuyer(get, set, { addresses: get().addresses.filter((item: any) => item.id !== id) }),
+      removeAddress: async (id: any) => {
+        try {
+          const res = await deleteMyPlace({ data: { id: String(id) } });
+          if (!res?.ok) return;
+        } catch {
+          return;
+        }
+        withBuyer(get, set, { addresses: get().addresses.filter((item: any) => item.id !== id) });
+      },
+      loadPlaces: async (seed?: any[]) => {
+        const user = get().user;
+        if (!user || user.role !== "buyer") return;
+        const phone = user.phone;
+        const flag = `souq-places-moved:${phone}`;
+        let moved = false;
+        try { moved = localStorage.getItem(flag) === "1"; } catch { /* private mode */ }
+        const seen = new Set<string>();
+        const local = (seed ?? get().addresses ?? []).filter((item: any) => {
+          if (item?.lat == null || !String(item?.name ?? "").trim()) return false;
+          const key = `${String(item.name).trim().toLowerCase()}|${Number(item.lat).toFixed(4)}|${Number(item.lng).toFixed(4)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (!moved && local.length) {
+          let failed = false;
+          for (const item of local.slice(0, 10)) {
+            try {
+              const res = await saveMyPlace({ data: { name: String(item.name).trim().slice(0, 30), label: String(item.line ?? "").trim().slice(0, 160), lat: Number(item.lat), lng: Number(item.lng) } });
+              if (!res?.ok && res?.error !== "limit") failed = true;
+            } catch {
+              failed = true;
+            }
+          }
+          if (failed) return;
+        }
+        try { localStorage.setItem(flag, "1"); } catch { /* private mode */ }
+        try {
+          const res = await listMyPlaces();
+          if (!res?.ok || get().user?.phone !== phone) return;
+          withBuyer(get, set, { addresses: res.places });
+        } catch { /* signed-in list stays empty until the next try */ }
+      },
       addWord: (kind: any, word: any) => {
         const clean = word.trim().toLowerCase();
         if (clean.length < 2) return;

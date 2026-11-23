@@ -1136,6 +1136,76 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
     return { ok: true as const, id, waPhone };
   });
 
+const JORDAN = { latMin: 29.18, latMax: 33.38, lngMin: 34.88, lngMax: 39.3 };
+const placeBody = z.object({
+  id: z.string().trim().min(2).max(40).optional(),
+  name: z.string().trim().min(1).max(30),
+  label: z.string().trim().max(160).optional(),
+  lat: z.number().gte(JORDAN.latMin).lte(JORDAN.latMax),
+  lng: z.number().gte(JORDAN.lngMin).lte(JORDAN.lngMax),
+});
+
+function placeRow(row: { id: string; name: string; label: string | null; lat: number; lng: number }) {
+  return { id: row.id, name: row.name, line: row.label ?? "", lat: Number(row.lat), lng: Number(row.lng) };
+}
+
+export const listMyPlaces = createServerFn({ method: "GET" }).handler(async () => {
+  const sql = await db();
+  const phone = await sessionPhone(sql);
+  if (!phone) return { ok: false as const, error: "auth" as const };
+  const rows = await sql<{ id: string; name: string; label: string | null; lat: number; lng: number }>`
+    select id, name, label, lat, lng from souq_buyer_places
+    where owner_phone = ${phone}
+    order by updated_at desc
+    limit 10
+  `;
+  return { ok: true as const, places: rows.map(placeRow) };
+});
+
+export const saveMyPlace = createServerFn({ method: "POST" })
+  .validator(placeBody)
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account || account.role === "seller") return { ok: false as const, error: "auth" as const };
+    const label = data.label ?? "";
+    if (data.id) {
+      const rows = await sql<{ id: string; name: string; label: string | null; lat: number; lng: number }>`
+        update souq_buyer_places
+        set name = ${data.name}, label = ${label}, lat = ${data.lat}, lng = ${data.lng}, updated_at = now()
+        where id = ${data.id} and owner_phone = ${phone}
+        returning id, name, label, lat, lng
+      `;
+      if (!rows[0]) return { ok: false as const, error: "missing" as const };
+      return { ok: true as const, place: placeRow(rows[0]) };
+    }
+    const count = await sql<{ n: number }>`select count(*)::int as n from souq_buyer_places where owner_phone = ${phone}`;
+    if (Number(count[0]?.n ?? 0) >= 10) return { ok: false as const, error: "limit" as const };
+    const s = await kit();
+    const id = `p-${s.randomBytes(8).toString("hex")}`;
+    const rows = await sql<{ id: string; name: string; label: string | null; lat: number; lng: number }>`
+      insert into souq_buyer_places (id, owner_phone, name, label, lat, lng)
+      values (${id}, ${phone}, ${data.name}, ${label}, ${data.lat}, ${data.lng})
+      returning id, name, label, lat, lng
+    `;
+    return { ok: true as const, place: placeRow(rows[0]) };
+  });
+
+export const deleteMyPlace = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().trim().min(2).max(40) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const rows = await sql<{ id: string }>`
+      delete from souq_buyer_places where id = ${data.id} and owner_phone = ${phone} returning id
+    `;
+    if (!rows[0]) return { ok: false as const, error: "missing" as const };
+    return { ok: true as const };
+  });
+
 export const saveSouqReview = createServerFn({ method: "POST" })
   .validator(
     z.object({

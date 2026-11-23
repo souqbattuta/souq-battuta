@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type * as Leaflet from "leaflet";
 import type { geocoders as GeocoderNs } from "leaflet-control-geocoder";
+import { FullscreenPicker } from "@/components/place-picker";
 import { copy } from "@/lib/i18n";
 import { useSession } from "@/lib/session";
 
@@ -13,7 +14,30 @@ function zoomFor(kind: string) {
   return 16;
 }
 
-export function LocationPicker({
+export function LocationPicker(props: {
+  onPick: (lat: number, lng: number, label?: string) => void;
+  searchLabel: string;
+  locateLabel: string;
+  hint: string;
+  mode?: "exact" | "area" | "fullscreen";
+  guided?: boolean;
+  bare?: boolean;
+  initial?: { lat: number; lng: number; label?: string } | null;
+  onClose?: () => void;
+}) {
+  if (props.mode === "fullscreen") {
+    return (
+      <FullscreenPicker
+        initial={props.initial}
+        onClose={props.onClose ?? (() => {})}
+        onUse={(pin) => props.onPick(pin.lat, pin.lng, pin.label)}
+      />
+    );
+  }
+  return <LocationPickerMap {...props} />;
+}
+
+function LocationPickerMap({
   onPick,
   searchLabel,
   locateLabel,
@@ -27,7 +51,7 @@ export function LocationPicker({
   searchLabel: string;
   locateLabel: string;
   hint: string;
-  mode?: "exact" | "area";
+  mode?: "exact" | "area" | "fullscreen";
   guided?: boolean;
   bare?: boolean;
   initial?: { lat: number; lng: number; label?: string } | null;

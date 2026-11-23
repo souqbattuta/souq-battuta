@@ -7,6 +7,7 @@ import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, journeyHint, type AlgoLever } 
 import { Shell } from "@/components/site-header";
 import { OptImg } from "@/components/opt-img";
 import { LocationPicker } from "@/components/location-picker";
+import { SavePlaceSheet } from "@/components/place-picker";
 
 function shopName(shop: Shop, ar: boolean) {
   return ar ? shop.nameAr : shop.name;
@@ -786,102 +787,65 @@ function AccountPage() {
 }
 
 function AddressBook() {
-  const t = copy[useSession((s) => s.lang)];
+  const lang = useSession((s) => s.lang);
+  const ar = lang === "ar";
   const addresses = useSession((s) => s.addresses);
-  const addAddress = useSession((s) => s.addAddress);
-  const updateAddress = useSession((s) => s.updateAddress);
   const removeAddress = useSession((s) => s.removeAddress);
-  const [editingId, setEditingId] = useState<string | "new" | null>(null);
-  const [name, setName] = useState("");
-  const [pin, setPin] = useState<{ lat: number; lng: number; label?: string } | null>(null);
-  const [seed, setSeed] = useState<{ lat: number; lng: number; label?: string } | null>(null);
-
-  function closeAll() {
-    setEditingId(null);
-    setName("");
-    setPin(null);
-    setSeed(null);
-  }
-
-  function openNew() {
-    setEditingId("new");
-    setName("");
-    setPin(null);
-    setSeed(null);
-  }
-
-  function openEdit(item: SavedAddress) {
-    const next = item.lat != null && item.lng != null ? { lat: item.lat, lng: item.lng, label: item.line } : null;
-    setEditingId(item.id);
-    setName(item.name);
-    setPin(next);
-    setSeed(next);
-  }
-
-  function save() {
-    if (!name.trim() || !pin) return;
-    const line = pin.label || `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`;
-    if (editingId && editingId !== "new") updateAddress(editingId, name, line, pin.lat, pin.lng);
-    else addAddress(name, line, pin.lat, pin.lng);
-    closeAll();
-  }
+  const [picker, setPicker] = useState<{ id?: string; lat?: number; lng?: number; label?: string; name?: string } | null>(null);
+  const [draft, setDraft] = useState<{ id?: string; lat: number; lng: number; label: string; name?: string } | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const doomed = addresses.find((item: { id: string }) => item.id === confirmId);
 
   return (
     <section>
       <ul className="address-boxes">
-        {addresses.map((item) => (
+        {addresses.map((item: { id: string; name: string; line?: string; lat?: number; lng?: number }) => (
           <li key={item.id} className="address-box">
-            <b>{item.name}</b>
+            <b>{item.name === "Home" ? "Home · البيت" : item.name === "Work" ? "Work · الشغل" : item.name}</b>
             <span>{item.line}</span>
             <div>
-              <button type="button" onClick={() => openEdit(item)}>{t.edit}</button>
-              <button type="button" onClick={() => removeAddress(item.id)}>{t.deleteAddress}</button>
+              <button type="button" onClick={() => setPicker({ id: item.id, lat: item.lat, lng: item.lng, label: item.line, name: item.name })}>{ar ? "تعديل" : "Edit"}</button>
+              <button type="button" onClick={() => setConfirmId(item.id)}>{ar ? "حذف" : "Delete"}</button>
             </div>
           </li>
         ))}
       </ul>
-      <button type="button" className="mt-4 h-11 rounded-md bg-ink px-4 text-sm font-semibold text-cream" onClick={openNew}>
-        {t.addAddress}
+      <p className="home-note">{ar ? "أماكنك المحفوظة ما بيشوفها غيرك" : "Only you can see your saved places"}</p>
+      <button type="button" className="mt-4 h-11 rounded-md bg-ink px-4 text-sm font-semibold text-cream" disabled={addresses.length >= 10} onClick={() => setPicker({})}>
+        {ar ? "أضف مكاناً" : "+ Add a place"}
       </button>
-      {editingId && (
-        <div className="list-modal" onClick={closeAll}>
-          <form
-            className="address-sheet"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              save();
-            }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-xl">{editingId === "new" ? t.addAddress : t.edit}</h3>
-              <button type="button" className="size-10 text-xl" aria-label={t.back} onClick={closeAll}>×</button>
+      {picker && (
+        <LocationPicker
+          mode="fullscreen"
+          searchLabel=""
+          locateLabel=""
+          hint=""
+          initial={picker.lat != null && picker.lng != null ? { lat: picker.lat, lng: picker.lng, label: picker.label } : null}
+          onClose={() => setPicker(null)}
+          onPick={(lat, lng, label) => {
+            setDraft({ id: picker.id, lat, lng, label: label || picker.label || "", name: picker.name });
+            setPicker(null);
+          }}
+        />
+      )}
+      {draft && (
+        <SavePlaceSheet
+          pin={{ lat: draft.lat, lng: draft.lng, label: draft.label }}
+          startName={draft.name}
+          id={draft.id}
+          onClose={() => setDraft(null)}
+          onDone={() => setDraft(null)}
+        />
+      )}
+      {doomed && (
+        <div className="place-save" role="dialog" aria-modal="true">
+          <div className="place-save-card">
+            <h3>{ar ? `نحذف ${doomed.name}؟` : `Delete ${doomed.name}?`}</h3>
+            <div className="place-save-row">
+              <button type="button" onClick={() => { void removeAddress(doomed.id); setConfirmId(null); }}>{ar ? "حذف" : "Delete"}</button>
+              <button type="button" onClick={() => setConfirmId(null)}>{ar ? "رجوع" : "Back"}</button>
             </div>
-            <label className="grid gap-1 text-sm font-semibold">
-              {t.namePlace}
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={t.nameExample}
-                aria-label={t.namePlace}
-                className="h-11 rounded-md border border-line bg-white px-3 text-sm font-normal"
-                required
-              />
-            </label>
-            <LocationPicker
-              key={editingId}
-              guided
-              bare
-              initial={seed}
-              searchLabel={t.searchAction}
-              locateLabel={t.myLocation}
-              hint={t.dragPin}
-              onPick={(lat, lng, label) => setPin((prev) => ({ lat, lng, label: label ?? prev?.label }))}
-            />
-            <div className="address-save-row">
-              <button type="submit" className="address-save" disabled={!name.trim() || !pin}>{t.savePlace}</button>
-            </div>
-          </form>
+          </div>
         </div>
       )}
     </section>
