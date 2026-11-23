@@ -17,6 +17,7 @@ import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, editHello
 import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
+import { isReservedBrand, usernameKey } from "./reserved-brand";
 import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
 const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1e3;
@@ -363,6 +364,7 @@ function directoryShops(accounts: any): Shop[] {
   const ids = new Set<string>();
   for (const shop of [...remoteShops, ...extras, ...SHOPS]) {
     if (!shop?.slug || ids.has(shop.slug)) continue;
+    if (isReservedBrand(shop.name) || isReservedBrand(shop.nameAr) || isReservedBrand(shop.slug)) continue;
     if (!isPublishable(shop)) continue;
     ids.add(shop.slug);
     catalog.push(shop);
@@ -466,24 +468,7 @@ function isValidSellerUsername(name: any) {
   return /^[\p{L}\p{N}\p{P}\p{S} ]+$/u.test(value);
 }
 function nameKey(name: any) {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
-}
-const BRAND_LETTER: Record<string, string> = {
-  ا: "a", أ: "a", إ: "a", آ: "a", ٱ: "a", ء: "", ئ: "i", ؤ: "o",
-  ب: "b", ت: "t", ث: "t", ج: "j", ح: "h", خ: "h",
-  د: "d", ذ: "d", ر: "r", ز: "z", س: "s", ش: "s", ص: "s", ض: "d",
-  ط: "t", ظ: "z", ع: "a", غ: "g", ف: "f", ق: "q", ك: "k", ل: "l",
-  م: "m", ن: "n", ه: "h", ة: "a", و: "o", ى: "a", ي: "i",
-};
-function isReservedBrand(name: any) {
-  let raw = name.trim().toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
-  raw = raw.replace(/[0٠]/g, "o").replace(/[1١]/g, "i").replace(/[3٣]/g, "e").replace(/[4٤]/g, "a").replace(/[5٥]/g, "s").replace(/[7٧]/g, "t");
-  let folded = "";
-  for (const ch of raw) folded += BRAND_LETTER[ch] ?? ch;
-  const skeleton = folded.replace(/[^a-z]/g, "").replace(/(.)\1+/g, "$1");
-  const hasSouq = /s[ou]{1,2}[qk]/.test(skeleton);
-  const hasBattuta = /b[aou]?t[ou]{0,2}t[aeiouh]{0,2}/.test(skeleton);
-  return hasSouq && hasBattuta;
+  return usernameKey(name);
 }
 function stallNameTaken(name: any, accounts: any, exceptPhone: any) {
   if (isReservedBrand(name)) return true;
@@ -934,6 +919,7 @@ const useSession = create<any>()(
         if (!user || user.role !== "seller") return { ok: false, error: "role" };
         const next = nextRaw.trim().replace(/\s+/g, " ");
         if (!isValidSellerUsername(next)) return { ok: false, error: "format" };
+        if (isReservedBrand(next)) return { ok: false, error: "reserved" };
         if (nameKey(next) === nameKey(user.username)) return { ok: true };
         const prev = get().accounts[user.phone];
         const changes = prev?.usernameChanges ?? user.usernameChanges ?? [];
@@ -1582,6 +1568,7 @@ const useSession = create<any>()(
         const user = get().user;
         const account = user ? get().accounts[user.phone] : void 0;
         if (!user || !account) return { ok: false, error: "auth" };
+        if (patch.displayName !== undefined && isReservedBrand(patch.displayName)) return { ok: false, error: "reserved" };
         let whatsappPhone = account.whatsappPhone;
         if (patch.whatsapp !== void 0) {
           const raw = String(patch.whatsapp ?? "").trim();

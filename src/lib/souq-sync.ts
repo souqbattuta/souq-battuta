@@ -6,6 +6,7 @@ import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
 import { queueOwnedMedia, sweepHelloStorage } from "@/lib/hello-cleanup";
 import { effectivePlan } from "@/lib/hello-archive";
+import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -69,6 +70,7 @@ const pushSchema = z
     stallForce: z.enum(["auto", "open", "closed"]).optional(),
     whatsappPhone: z.string().trim().max(20).optional(),
     googleShopping: z.boolean().optional(),
+    shopName: z.string().trim().min(2).max(80).optional(),
   });
 
 type Profile = z.infer<typeof profileSchema>;
@@ -283,6 +285,44 @@ function shopSlugFor(phone: string) {
   return `stall-${digits || "shop"}`;
 }
 
+function namesReserved(...values: unknown[]) {
+  return values.some((value) => isReservedBrand(value));
+}
+
+function nameTakenError(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  return code === "taken" || code === "23505";
+}
+
+async function rejectTakenUsername(sql: Awaited<ReturnType<typeof db>>, phone: string, username: string) {
+  const key = usernameKey(username);
+  if (!key) return;
+  await sql`select pg_advisory_xact_lock(hashtext(${`souq-user:${key}`}))`;
+  const rows = await sql<{ phone: string }>`
+    select phone from souq_accounts
+    where phone <> ${phone}
+      and lower(btrim(regexp_replace(coalesce(data->>'username', ''), '\\s+', ' ', 'g'))) = ${key}
+    limit 1
+  `;
+  if (rows[0]) {
+    const err = new Error("taken") as Error & { code?: string };
+    err.code = "taken";
+    throw err;
+  }
+  const pending = await sql<{ phone: string }>`
+    select phone from souq_pending
+    where phone <> ${phone}
+      and expires_at > now()
+      and lower(btrim(regexp_replace(coalesce(profile->>'username', ''), '\\s+', ' ', 'g'))) = ${key}
+    limit 1
+  `;
+  if (pending[0]) {
+    const err = new Error("taken") as Error & { code?: string };
+    err.code = "taken";
+    throw err;
+  }
+}
+
 export const stageSouqSignup = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -305,17 +345,27 @@ export const stageSouqSignup = createServerFn({ method: "POST" })
     if (!(await hitRate(sql, `phone:stage:${data.phone}`, 6, 3600))) return { ok: false as const, error: "rate" as const };
     const existing = await loadAccount(sql, data.phone);
     if (existing && existing.phone_verified && !existing.must_reset) return { ok: false as const, error: "exists" as const };
-    const passwordHash = await s.hash(data.password, BCRYPT_COST);
     const profile = { ...data.profile, phone: data.phone };
-    await sql`
-      insert into souq_pending (phone, password_hash, profile, expires_at)
-      values (${data.phone}, ${passwordHash}, ${JSON.stringify(profile)}::jsonb, now() + interval '30 minutes')
-      on conflict (phone) do update set
-        password_hash = excluded.password_hash,
-        profile = excluded.profile,
-        expires_at = excluded.expires_at,
-        created_at = now()
-    `;
+    if (namesReserved(profile.username, profile.displayName, profile.shopName)) return { ok: false as const, error: "reserved" as const };
+    const passwordHash = await s.hash(data.password, BCRYPT_COST);
+    try {
+      await tx(async (trx) => {
+        await rejectTakenUsername(trx, data.phone, profile.username);
+        await trx`
+          insert into souq_pending (phone, password_hash, profile, expires_at)
+          values (${data.phone}, ${passwordHash}, ${JSON.stringify(profile)}::jsonb, now() + interval '30 minutes')
+          on conflict (phone) do update set
+            password_hash = excluded.password_hash,
+            profile = excluded.profile,
+            expires_at = excluded.expires_at,
+            created_at = now()
+        `;
+      });
+    } catch (error) {
+      if (nameTakenError(error)) return { ok: false as const, error: "taken" as const };
+      console.error("[souq] stage failed", error);
+      return { ok: false as const, error: "server" as const };
+    }
     return { ok: true as const };
   });
 
@@ -342,6 +392,10 @@ export const setSouqSignupPlan = createServerFn({ method: "POST" })
     const profile = rows[0]?.profile;
     if (!profile) return { ok: false as const, error: "missing" as const };
     if (!shopWa(profile.whatsappPhone)) return { ok: false as const, error: "whatsapp" as const, message: WHATSAPP_REQUIRED };
+    const nextName = data.shopName || profile.shopName || profile.displayName;
+    if (namesReserved(profile.username, profile.displayName, profile.shopName, data.shopName, nextName)) {
+      return { ok: false as const, error: "reserved" as const };
+    }
     const chosen = data.plan;
     const paid = chosen === "basic" || chosen === "pro" || chosen === "premium" || chosen === "grow";
     if (!(paid && data.paymentStatus === "pending") && !data.promoCode) {
@@ -522,8 +576,10 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       joinedAt: Date.now(),
       ...(role === "seller" ? { whatsappPhone: profile.whatsappPhone } : {}),
     };
+    if (namesReserved(safe.username, safe.displayName, safe.shopName, slug)) return { ok: false as const, error: "reserved" as const };
     try {
       await tx(async (trx) => {
+        await rejectTakenUsername(trx, data.phone, safe.username);
         if (wantsTrial && planEnds) {
           const locked = await trx<{ phone: string }>`
             insert into souq_trial_phones (phone, trial_start, trial_end)
@@ -562,8 +618,8 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         }
         if (role === "seller" && slug) {
           await trx`
-            insert into souq_shops (slug, owner_phone, name, area, plan, category, publishable)
-            values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""}, ${shopWa(profile.whatsappPhone) !== ""})
+            insert into souq_shops (slug, owner_phone, name, area, plan, category, publishable, name_hold)
+            values (${slug}, ${data.phone}, ${safe.displayName}, ${safe.city}, ${plan ?? "free"}, ${(profile.categories ?? [])[0] ?? ""}, ${shopWa(profile.whatsappPhone) !== ""}, false)
             on conflict (slug) do update set
               owner_phone = excluded.owner_phone,
               name = excluded.name,
@@ -571,6 +627,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
               plan = excluded.plan,
               category = excluded.category,
               publishable = excluded.publishable,
+              name_hold = false,
               updated_at = now()
           `;
           await trx`
@@ -590,6 +647,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
       if (error instanceof Error && (error as Error & { code?: string }).code === "trial") {
         return { ok: false as const, error: "trial" as const };
       }
+      if (nameTakenError(error)) return { ok: false as const, error: "taken" as const };
       console.error("[souq] signup failed", error);
       return { ok: false as const, error: "server" as const };
     }
@@ -861,6 +919,9 @@ export const pushSouq = createServerFn({ method: "POST" })
       incoming.findWords = incoming.findWords.slice(0, PLANS[planIdOf(account.plan)].keywords);
     }
     Object.assign(next, incoming);
+    if (typeof parsed.data.displayName === "string" && parsed.data.displayName.trim() && (account.role === "seller" || isReservedBrand(next.shopName))) {
+      next.shopName = parsed.data.displayName.trim();
+    }
     if (Object.prototype.hasOwnProperty.call(parsed.data, "whatsappPhone")) {
       const incoming = shopWa(parsed.data.whatsappPhone);
       const current = shopWa(account.data?.whatsappPhone);
@@ -872,29 +933,41 @@ export const pushSouq = createServerFn({ method: "POST" })
       const value = next[key];
       if (typeof value === "string" && value.startsWith("data:")) delete next[key];
     }
-    await sql`
-      update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${phone}
-    `;
-    if (account.shop_slug) {
-      const categories = Array.isArray(next.categories) ? (next.categories as string[]) : [];
-      const words = Array.isArray(next.findWords) ? (next.findWords as string[]) : [];
-      const avatar = typeof next.stallAvatar === "string" ? next.stallAvatar : null;
-      const cover = typeof next.stallCover === "string" ? next.stallCover : null;
-      await sql`
-        update souq_shops set
-          name = ${String(next.displayName || next.shopName || next.username || account.shop_slug)},
-          area = ${String(next.city ?? "")},
-          category = ${categories[0] ?? ""},
-          keywords = ${JSON.stringify(words)}::jsonb,
-          bio = ${String(next.stallBio || next.bio || "")},
-          avatar_url = ${avatar},
-          cover_url = ${cover},
-          thumb_url = ${avatar},
-          demo = case when ${next.demo === true} then true else demo end,
-          publishable = ${shopWa(next.whatsappPhone) !== ""},
-          updated_at = now()
-        where slug = ${account.shop_slug} and owner_phone = ${phone}
-      `;
+    if (namesReserved(next.username, next.displayName, next.shopName)) return { ok: false as const, error: "reserved" as const };
+    const hold = isReservedBrand(account.shop_slug);
+    try {
+      await tx(async (trx) => {
+        if (typeof next.username === "string") await rejectTakenUsername(trx, phone, next.username);
+        await trx`
+          update souq_accounts set data = ${JSON.stringify(next)}::jsonb, updated_at = now() where phone = ${phone}
+        `;
+        if (account.shop_slug) {
+          const categories = Array.isArray(next.categories) ? (next.categories as string[]) : [];
+          const words = Array.isArray(next.findWords) ? (next.findWords as string[]) : [];
+          const avatar = typeof next.stallAvatar === "string" ? next.stallAvatar : null;
+          const cover = typeof next.stallCover === "string" ? next.stallCover : null;
+          await trx`
+            update souq_shops set
+              name = ${String(next.displayName || next.shopName || next.username || account.shop_slug)},
+              area = ${String(next.city ?? "")},
+              category = ${categories[0] ?? ""},
+              keywords = ${JSON.stringify(words)}::jsonb,
+              bio = ${String(next.stallBio || next.bio || "")},
+              avatar_url = ${avatar},
+              cover_url = ${cover},
+              thumb_url = ${avatar},
+              demo = case when ${next.demo === true} then true else demo end,
+              publishable = ${shopWa(next.whatsappPhone) !== ""},
+              name_hold = ${hold},
+              updated_at = now()
+            where slug = ${account.shop_slug} and owner_phone = ${phone}
+          `;
+        }
+      });
+    } catch (error) {
+      if (nameTakenError(error)) return { ok: false as const, error: "taken" as const };
+      console.error("[souq] profile save failed", error);
+      return { ok: false as const, error: "server" as const };
     }
     return { ok: true as const };
   });
@@ -1115,6 +1188,7 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
       join souq_accounts a on a.phone = s.owner_phone
       where s.slug = ${data.shopSlug}
         and s.hidden = false
+        and s.name_hold = false
         and s.demo = false
         and s.publishable = true
         and a.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
@@ -1715,6 +1789,7 @@ export const listPublicShops = createServerFn({ method: "GET" })
       from souq_shops s
       join souq_accounts a on a.phone = s.owner_phone
       where s.hidden = false
+        and s.name_hold = false
         and s.demo = false
         and coalesce(a.data->>'demo', 'false') <> 'true'
         and s.publishable = true
@@ -1811,19 +1886,20 @@ export const listHello = createServerFn({ method: "GET" })
       select p.id, p.shop_slug, p.text, p.lang, p.image_url, p.thumb_url, p.created_at, p.expires_at, p.views, p.hearts,
              s.name as shop_name, s.keywords, s.category
       from souq_hello_posts p
-      left join souq_shops s on s.slug = p.shop_slug and s.hidden = false and s.demo = false
+      left join souq_shops s on s.slug = p.shop_slug and s.hidden = false and s.name_hold = false and s.demo = false
       where p.status = 'live' and p.expires_at > now()
         and exists (
           select 1 from souq_shops pub
           join souq_accounts owner on owner.phone = pub.owner_phone
           where pub.slug = p.shop_slug
             and pub.hidden = false
+            and pub.name_hold = false
             and pub.demo = false
             and owner.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
         )
         and not exists (
           select 1 from souq_shops blocked
-          where blocked.slug = p.shop_slug and (blocked.hidden or blocked.demo)
+          where blocked.slug = p.shop_slug and (blocked.hidden or blocked.name_hold or blocked.demo)
         )
       order by p.created_at desc
     `;

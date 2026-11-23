@@ -74,6 +74,12 @@ async function main() {
       count += 1;
     }
     console.log(count ? `[migrate] done — ${count} migration(s) applied.` : "[migrate] up to date.");
+    const { sweepReservedShops } = await import("../src/lib/reserved-brand.ts");
+    const sweepSql = {
+      query: async (text, params = []) => (await client.query(text, params)).rows,
+    };
+    const brand = await sweepReservedShops(sweepSql);
+    console.log(`[migrate] reserved-name check passed — ${brand.checked} shop(s) checked, ${brand.held} held`);
   } finally {
     client.release();
     await pool.end();

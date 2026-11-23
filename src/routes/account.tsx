@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent as React
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { SHOPS, type Product, type Shop } from "@/lib/data";
 import { directoryShops, isValidUsername, usernameTaken, useSession, type BookmarkList, type BuyerAccount, type FollowedList, type SavedAddress } from "@/lib/session";
+import { isReservedBrand } from "@/lib/reserved-brand";
 import { copy, place } from "@/lib/i18n";
 import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, journeyHint, type AlgoLever } from "@/lib/shelves";
 import { Shell } from "@/components/site-header";
@@ -500,6 +501,7 @@ function AccountPage() {
   const [openList, setOpenList] = useState("");
   const [listName, setListName] = useState("");
   const [username, setUsername] = useState(user?.username ?? "");
+  const [displayName, setDisplayName] = useState(user?.displayName ?? "");
 
   useEffect(() => {
     if (!user || user.role === "seller") return;
@@ -543,14 +545,18 @@ function AccountPage() {
     .filter((shop): shop is Shop => Boolean(shop));
   const savedItems = favorites.map(findFavorite).filter((item): item is { product: Product; shop: Shop } => Boolean(item));
   const nameOk = isValidUsername(username);
-  const nameTaken = nameOk && usernameTaken(username, accounts, user.phone);
+  const userReserved = isReservedBrand(username);
+  const displayReserved = isReservedBrand(displayName);
+  const nameTaken = nameOk && !userReserved && usernameTaken(username, accounts, user.phone);
   const hasNotes = notes.length > 0 || orders.some((order) => !order.reviewed);
 
   function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const nextName = String(fd.get("username") ?? "");
+    const nextDisplay = String(fd.get("displayName") ?? "");
     if (!user) return;
+    if (isReservedBrand(nextName) || isReservedBrand(nextDisplay)) return setError(t.nameReserved);
     if (!isValidUsername(nextName)) return setError(t.shortUser);
     if (usernameTaken(nextName, accounts, user.phone)) return setError(t.usernameTaken);
     updateProfile({
@@ -593,6 +599,7 @@ function AccountPage() {
               className="buyer-edit h-11 rounded-md border border-ink px-4 text-sm font-semibold"
               onClick={() => {
                 setUsername(user.username);
+                setDisplayName(user.displayName || "");
                 setEditing((open) => !open);
               }}
             >
@@ -611,7 +618,13 @@ function AccountPage() {
           <form className="mt-6 space-y-3" key={`${user.phone}-${user.username}-${user.displayName}-${user.city}`} onSubmit={onSave}>
             <label className="block text-sm">
               <span className="mb-1 block font-semibold">{t.displayName}</span>
-              <input name="displayName" defaultValue={user.displayName || ""} className="h-12 w-full rounded-md border border-line bg-white px-3" />
+              <input
+                name="displayName"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="h-12 w-full rounded-md border border-line bg-white px-3"
+              />
+              {displayReserved && <span className="mt-1 block text-xs text-red">{t.nameReserved}</span>}
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-semibold">{t.username}</span>
@@ -622,8 +635,8 @@ function AccountPage() {
                 className="h-12 w-full rounded-md border border-line bg-white px-3"
                 required
               />
-              <span className={`mt-1 block text-xs ${!nameOk || nameTaken ? "text-red" : "text-mute"}`}>
-                {!username ? t.shortUser : !nameOk ? t.shortUser : nameTaken ? t.usernameTaken : t.usernameFree}
+              <span className={`mt-1 block text-xs ${!nameOk || nameTaken || userReserved ? "text-red" : "text-mute"}`}>
+                {!username ? t.shortUser : userReserved ? t.nameReserved : !nameOk ? t.shortUser : nameTaken ? t.usernameTaken : t.usernameFree}
               </span>
             </label>
             <label className="block text-sm">

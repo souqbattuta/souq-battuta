@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { isValidArabPhone, isValidUsername, usernameTaken, useSession } from "@/lib/session";
+import { isReservedBrand } from "@/lib/reserved-brand";
 import { copy, place } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 
@@ -31,6 +32,7 @@ function BuyerJoinPage() {
     const city = String(fd.get("city") ?? "");
     const address = String(fd.get("address") ?? "");
     const referral = String(fd.get("referral") ?? "");
+    if (isReservedBrand(username) || isReservedBrand(displayName)) return setError(t.nameReserved);
     if (displayName.trim().length < 2) return setError(t.displayName);
     if (!isValidUsername(username)) return setError(t.shortUser);
     if (usernameTaken(username, accounts, "")) return setError(t.usernameTaken);
@@ -52,7 +54,7 @@ function BuyerJoinPage() {
     });
     setLoading(false);
     if (!joined.ok) {
-      setError(joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "exists" ? t.needVerify : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
+      setError(joined.error === "reserved" ? t.nameReserved : joined.error === "taken" ? t.usernameTaken : joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "exists" ? t.needVerify : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
       return;
     }
     void navigate({ to: "/otp" });

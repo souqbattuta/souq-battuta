@@ -9,6 +9,7 @@ const GRACE_MS = 5 * 86400000;
 
 const LIVE_SQL = `
   s.hidden = false
+  and s.name_hold = false
   and s.demo = false
   and coalesce(a.data->>'demo', 'false') <> 'true'
   and s.publishable = true
@@ -105,6 +106,7 @@ type ShopRow = {
   has_wa: boolean;
   live: boolean;
   owner_phone: string;
+  name_hold: boolean | string | null;
 };
 
 function toShop(row: ShopRow, products: Product[], reviews: Review[]): Shop {
@@ -147,7 +149,8 @@ const SHOP_SELECT = `
     a.data->>'stallForce' as stall_force,
     a.data->>'contactWhenClosed' as contact_when_closed,
     (a.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$') as has_wa,
-    (${LIVE_SQL}) as live
+    (${LIVE_SQL}) as live,
+    s.name_hold
   from souq_shops s
   join souq_accounts a on a.phone = s.owner_phone
 `;
@@ -164,7 +167,7 @@ export async function loadShopPage(slug: string, viewerPhone: string | null) {
     [now, GRACE_MS, slug],
   );
   const row = rows[0];
-  if (!row) return { shop: null as Shop | null, indexable: false };
+  if (!row || isTrue(row.name_hold)) return { shop: null as Shop | null, indexable: false };
   const live = isTrue(row.live);
   const owner = Boolean(viewerPhone && row.owner_phone === viewerPhone);
   if (!live && !owner) return { shop: null as Shop | null, indexable: false };

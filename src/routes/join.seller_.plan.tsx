@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { OFFERED_PLANS, PLANS, displayPlan, normalizePlan, type PlanId } from "@/lib/data";
 import { useSession } from "@/lib/session";
+import { copy } from "@/lib/i18n";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
 import { checkPromo, type PromoCode } from "@/lib/promo-codes";
 import { Shell } from "@/components/site-header";
@@ -61,6 +62,7 @@ function SellerPlanPage() {
   const promos = useSession((s) => s.promoCodes);
   const redemptions = useSession((s) => s.promoRedemptions);
   const ar = lang === "ar";
+  const t = copy[lang];
   const [draft, setDraft] = useState<SellerDraft | null | undefined>(undefined);
   const [plan, setPlan] = useState<PlanId>("basic");
   const [payOpen, setPayOpen] = useState(false);
@@ -109,7 +111,7 @@ function SellerPlanPage() {
     });
     setLoading(false);
     if (!joined.ok) {
-      setPromoError(joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : joined.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
+      setPromoError(joined.error === "reserved" ? t.nameReserved : joined.error === "taken" ? t.usernameTaken : joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : joined.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
       return;
     }
     remember({ plan: gift?.plan ?? chosen, billingPeriod: payment?.period, paymentMethod: payment?.method ?? "free", paymentRef: payment?.ref, promoCode: gift?.code, promoMonths: gift?.months });

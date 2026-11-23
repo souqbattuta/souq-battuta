@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CATEGORIES, LAUNCH_CATEGORY_IDS, WHATSAPP_REQUIRED, isSellerCategory, type CategoryId } from "@/lib/data";
 import { isShopWhatsapp, isValidArabPhone, isValidSellerUsername, isValidUsername, normalizePhone, usernameTaken, useSession } from "@/lib/session";
+import { isReservedBrand } from "@/lib/reserved-brand";
 import { copy, place } from "@/lib/i18n";
 import { stageSouqSignup } from "@/lib/souq-sync";
 import { readSellerDraft, saveSellerDraft, type SellerDraft } from "@/lib/seller-draft";
@@ -60,6 +61,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     const displayName = String(fd.get("displayName") ?? "");
     const shopName = String(fd.get("shopName") ?? "").trim();
     const referral = String(fd.get("referral") ?? "");
+    if (isReservedBrand(username) || isReservedBrand(displayName) || isReservedBrand(shopName)) return setError(t.nameReserved);
     if (intent === "seller") {
       if (shopName.length < 2) return setError(ar ? "اكتب اسم الدكان." : "Enter the shop name.");
       if (!isValidSellerUsername(username)) return setError(t.sellerUserRule);
@@ -97,7 +99,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
       });
       setLoading(false);
       if (!staged.ok) {
-        setError(staged.error === "exists" ? t.usernameTaken : staged.error === "rate" ? t.otpRate : staged.error === "whatsapp" ? WHATSAPP_REQUIRED : staged.error === "phone" ? WHATSAPP_REQUIRED : t.otpSend);
+        setError(staged.error === "reserved" ? t.nameReserved : staged.error === "taken" || staged.error === "exists" ? t.usernameTaken : staged.error === "rate" ? t.otpRate : staged.error === "whatsapp" ? WHATSAPP_REQUIRED : staged.error === "phone" ? WHATSAPP_REQUIRED : t.otpSend);
         return;
       }
       saveSellerDraft({
@@ -121,7 +123,7 @@ export function JoinForm({ intent }: { intent: "buyer" | "seller" }) {
     const joined = await startJoin({ phone, username, password, displayName, city, address, referral, intent: "buyer" });
     setLoading(false);
     if (!joined.ok) {
-      setError(joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "exists" ? t.needVerify : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
+      setError(joined.error === "reserved" ? t.nameReserved : joined.error === "taken" ? t.usernameTaken : joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "exists" ? t.needVerify : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
       return;
     }
     void navigate({ to: "/otp" });

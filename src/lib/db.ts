@@ -1,4 +1,5 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
+import { sweepReservedShops } from "./reserved-brand";
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
@@ -86,6 +87,15 @@ function toSql(run: Run): Sql {
   return sql;
 }
 
+async function runBrandSweep(sql: Sql) {
+  try {
+    const result = await sweepReservedShops(sql);
+    console.log(`[souq] reserved-name check passed — ${result.checked} shop(s) checked, ${result.held} held`);
+  } catch (error) {
+    console.error("[souq] reserved-name check failed", error);
+  }
+}
+
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
     // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
@@ -96,10 +106,12 @@ function createNeonSql(): Promise<Sql> {
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool({ connectionString: databaseUrl });
     globalRef.__pgPool__ = pool;
-    return toSql(async <T>(text: string, params: unknown[]) => {
+    const sql = toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
     });
+    await runBrandSweep(sql);
+    return sql;
   })().catch((err) => {
     globalRef.__pgSqlPromise__ = undefined;
     throw err;
@@ -163,10 +175,12 @@ async function createPgliteSql(): Promise<Sql> {
   globalRef.__pgliteMigrateChain__ = pass;
   await pass;
 
-  return toSql(async <T>(text: string, params: unknown[]) => {
+  const sql = toSql(async <T>(text: string, params: unknown[]) => {
     const result = await pg.query<T>(text, params);
     return result.rows;
   });
+  await runBrandSweep(sql);
+  return sql;
 }
 
 let sqlPromise: Promise<Sql> | null = null;

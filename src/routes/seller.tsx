@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, WHATSAPP_REQUIRED, displayPlan, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
 import { billingPhase, isShopWhatsapp, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
+import { isReservedBrand } from "@/lib/reserved-brand";
 import { CAMPAIGN_STEPS, campaignStanding, countCodeUses } from "@/lib/seller-campaign";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
@@ -466,6 +467,10 @@ function SellerDesk() {
                     setContactError(ar ? "اسم الدكان قصير." : "Stall name is too short.");
                     return;
                   }
+                  if (isReservedBrand(name)) {
+                    setContactError(t.nameReserved);
+                    return;
+                  }
                   if (stallNameTaken(name, accounts, user.phone)) {
                     setContactError(ar ? "اسم الدكان مأخوذ." : "That stall name is taken.");
                     return;
@@ -477,6 +482,10 @@ function SellerDesk() {
                   const fd = new FormData(event.currentTarget);
                   const entered = String(fd.get("whatsapp") ?? "");
                   const res = setSellerContact({ displayName: name, whatsapp: entered });
+                  if (!res.ok && res.error === "reserved") {
+                    setContactError(t.nameReserved);
+                    return;
+                  }
                   if (!res.ok && res.error === "otp") {
                     void requestWhatsappChange({ data: { phone: entered } }).then((sent) => {
                       if (!sent.ok) {
@@ -499,10 +508,12 @@ function SellerDesk() {
                 <label className="text-sm">
                   {ar ? "اسم الدكان" : "Shop name"}
                   <input value={stallName} onChange={(event) => setStallName(event.target.value)} className="mt-1 h-11 w-full rounded-md border border-line px-3" />
-                  <span className={`mt-1 block text-xs ${stallName.trim().length >= 2 && stallNameTaken(stallName, accounts, user.phone) ? "text-red" : "text-mute"}`}>
+                  <span className={`mt-1 block text-xs ${stallName.trim().length >= 2 && (isReservedBrand(stallName) || stallNameTaken(stallName, accounts, user.phone)) ? "text-red" : "text-mute"}`}>
                     {stallName.trim().length < 2
                       ? ar ? "حرفان على الأقل." : "At least 2 characters."
-                      : stallNameTaken(stallName, accounts, user.phone)
+                      : isReservedBrand(stallName)
+                        ? t.nameReserved
+                        : stallNameTaken(stallName, accounts, user.phone)
                         ? ar ? "مأخوذ." : "Taken."
                         : ar ? "متاح." : "Available."}
                   </span>
