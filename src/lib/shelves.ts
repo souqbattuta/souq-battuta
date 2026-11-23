@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import { CATEGORIES, SHOP_WHATSAPP, type Shop } from "./data.ts";
+import { CATEGORIES, type Shop } from "./data.ts";
 
 const CATEGORY_WORDS: Record<string, [string, string]> = {
   food: ["food", "طعام"],
@@ -115,9 +115,9 @@ export function isDemoShop(shop: { demo?: boolean }) {
   return shop.demo === true;
 }
 
-/** A shop buyers can open. Demo stalls stay in the code and show only when that flag is turned off on purpose. */
-export function isPublishable(shop: { phone?: string; demo?: boolean }) {
-  return shop.demo !== true && SHOP_WHATSAPP.test(String(shop.phone ?? "").trim());
+/** A shop buyers can open. The public payload carries a flag, not the number. */
+export function isPublishable(shop: { hasWhatsapp?: boolean; demo?: boolean }) {
+  return shop.demo !== true && shop.hasWhatsapp === true;
 }
 
 /** Production and preview both drop demo shops. Old aisle ids are skipped by the caller, not rewritten. */

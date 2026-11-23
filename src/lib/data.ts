@@ -80,6 +80,8 @@ export type Shop = {
   offAisle?: boolean;
   plan: PlanId;
   phone: string;
+  /** True when the shop has a valid WhatsApp. The number itself is not public. */
+  hasWhatsapp?: boolean;
   avatar: string;
   cover?: string;
   bio?: string;

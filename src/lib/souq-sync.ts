@@ -1107,17 +1107,22 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     if (!phone) return { ok: false as const, error: "auth" as const };
-    const open = await sql<{ slug: string }>`
-      select s.slug
+    const open = await sql<{ slug: string; whatsapp: string | null }>`
+      select s.slug, a.data->>'whatsappPhone' as whatsapp
       from souq_shops s
       join souq_accounts a on a.phone = s.owner_phone
       where s.slug = ${data.shopSlug}
         and s.hidden = false
         and s.demo = false
+        and s.publishable = true
         and a.data->>'whatsappPhone' ~ '^\\+9627[789][0-9]{7}$'
       limit 1
     `;
     if (!open[0]) return { ok: false as const, error: "phone" as const };
+    if (!(await hitRate(sql, `order:day:${phone}`, 20, 86400))) return { ok: false as const, error: "rate" as const };
+    if (!(await hitRate(sql, `order:hour:${phone}:${data.shopSlug}`, 5, 3600))) return { ok: false as const, error: "rate" as const };
+    const waPhone = String(open[0].whatsapp ?? "").replace(/\D/g, "");
+    if (!/^9627[789]\d{7}$/.test(waPhone)) return { ok: false as const, error: "phone" as const };
     const s = await kit();
     const id = `o-${s.randomBytes(8).toString("hex")}`;
     await sql`
@@ -1128,7 +1133,7 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
       insert into souq_views (shop_slug, order_count) values (${data.shopSlug}, 1)
       on conflict (shop_slug) do update set order_count = souq_views.order_count + 1
     `;
-    return { ok: true as const, id };
+    return { ok: true as const, id, waPhone };
   });
 
 export const saveSouqReview = createServerFn({ method: "POST" })
@@ -1621,7 +1626,6 @@ export const listPublicShops = createServerFn({ method: "GET" })
       cover_url: string | null;
       thumb_url: string | null;
       created_at: string;
-      whatsapp_phone: string | null;
       stall_opens: string | null;
       stall_closes: string | null;
       stall_days: string | null;
@@ -1630,7 +1634,6 @@ export const listPublicShops = createServerFn({ method: "GET" })
       bio_ar: string | null;
     }>`
       select s.slug, s.name, s.area, s.plan, s.category, s.keywords, s.bio, s.avatar_url, s.cover_url, s.thumb_url, s.created_at,
-        a.data->>'whatsappPhone' as whatsapp_phone,
         a.data->>'stallOpens' as stall_opens,
         a.data->>'stallCloses' as stall_closes,
         a.data->>'stallDays' as stall_days,
@@ -1681,7 +1684,7 @@ export const listPublicShops = createServerFn({ method: "GET" })
           keywords: words,
           bio: row.bio,
           bioAr: row.bio_ar || row.bio,
-          phone: row.whatsapp_phone || "",
+          hasWhatsapp: true,
           stallOpens: row.stall_opens || "",
           stallCloses: row.stall_closes || "",
           stallDays: row.stall_days || "",

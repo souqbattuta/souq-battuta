@@ -25,7 +25,8 @@ function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listing
     offAisle: (account.categories ?? []).length > 0 && stored.length === 0,
     categories: stored,
     plan: account.sellerPlan ?? "free",
-    phone: sellerWhatsapp(account),
+    phone: "",
+    hasWhatsapp: Boolean(sellerWhatsapp(account)),
     avatar: account.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || "/brand/avatars/default-duck.jpg",
     cover: account.stallCover,
     bio: account.stallBio,
@@ -42,10 +43,13 @@ function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listing
     views: account.sellerPlan && account.sellerPlan !== "free" ? account.stallViews ?? 0 : undefined,
     askQty: account.askQty,
     products,
-    reviews: (account.stallReviews ?? []).map((review, index) => ({
-      ...review,
-      reply: reviewReplies[`${slug}:${index}`] ?? review.reply,
-    })),
+    reviews: (account.stallReviews ?? []).map((review, index) => {
+      const { authorPhone: _author, ...rest } = review as typeof review & { authorPhone?: string };
+      return {
+        ...rest,
+        reply: reviewReplies[`${slug}:${index}`] ?? review.reply,
+      };
+    }),
     mode: "inquire",
     km: 0,
   };
@@ -78,7 +82,8 @@ export function ShopPage({ slug }: { slug: string }) {
         ? {
             avatar: owner.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : owner.stallAvatar || base.avatar,
             cover: owner.stallCover || base.cover,
-            phone: sellerWhatsapp(owner),
+            phone: "",
+            hasWhatsapp: Boolean(sellerWhatsapp(owner)) || base.hasWhatsapp === true,
             bio: owner.stallBio || base.bio,
             bioAr: owner.stallBioAr || owner.stallBio || base.bioAr,
             isOpen: stallIsOpen(owner),

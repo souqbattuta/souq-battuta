@@ -910,7 +910,7 @@ function PublicStall({ shop }: { shop: Shop }) {
                 </div>
                 {!user ? (
                   <Link to="/sign-in" search={{ next: `/shop/${shop.slug}` }}>{t.loginToContact}</Link>
-                ) : user.role === "seller" && !ui.own ? null : (shop.phone ?? "").replace(/\D/g, "").length >= 8 ? (
+                ) : user.role === "seller" && !ui.own ? null : shop.hasWhatsapp ? (
                   <button type="button" onClick={() => setPreview(true)}>
                     <i />
                     Send via WhatsApp · أرسل عبر واتساب
@@ -1380,7 +1380,7 @@ function ReviewList({ shop }: { shop: Shop }) {
               >
                 {t.report}
               </button>
-              {review.own && review.authorPhone === user?.phone && (
+              {review.own && (
                 <button type="button" className="h-8 rounded-md border border-line px-2 text-red" onClick={() => deleteReview(review.id)}>
                   {t.deleteReview}
                 </button>

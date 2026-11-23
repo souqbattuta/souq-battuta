@@ -244,7 +244,7 @@ function shopFromPublic(row: {
   keywords: string[];
   bio: string;
   bioAr?: string;
-  phone?: string;
+  hasWhatsapp?: boolean;
   stallOpens?: string;
   stallCloses?: string;
   stallDays?: string;
@@ -266,7 +266,8 @@ function shopFromPublic(row: {
     category,
     offAisle: !parsed || parsed === "all",
     plan: asPlan(row.plan),
-    phone: sellerWhatsapp({ whatsappPhone: row.phone }),
+    phone: "",
+    hasWhatsapp: row.hasWhatsapp === true,
     avatar: row.avatar,
     cover: row.cover,
     bio: row.bio,
@@ -300,7 +301,12 @@ function directoryShops(accounts: any): Shop[] {
     if (!slug || seen.has(slug) || SHOPS.some((shop) => shop.slug === slug)) continue;
     seen.add(slug);
     const products = (account.listings ?? []).filter((item: any) => item.shopSlug === slug || item.shopSlug === account.shopSlug).map((item: any) => publicProduct(item, account.sellerPlan === "premium")).filter((item: any) => Boolean(item));
-    const reviews = account.stallReviews ?? [];
+    const reviews = (account.stallReviews ?? []).map((review: any) => {
+      const next = { ...review, own: false };
+      delete next.authorPhone;
+      delete next.phone;
+      return next;
+    });
     const rating = reviews.length ? Math.round(reviews.reduce((sum: any, review: any) => sum + review.score, 0) / reviews.length * 10) / 10 : void 0;
     const blob = products.map((product: any) => `${product.name} ${product.desc}`).join(" ").toLowerCase();
     const stored = (account.categories ?? []).map((id: string) => asCategory(id)).filter((id: CategoryId | null): id is CategoryId => Boolean(id) && id !== "all");
@@ -317,7 +323,8 @@ function directoryShops(accounts: any): Shop[] {
       offAisle: !category,
       categories: stored.slice(0, 2),
       plan: account.sellerPlan ?? "free",
-      phone: sellerWhatsapp(account),
+      phone: "",
+      hasWhatsapp: isShopWhatsapp(account.whatsappPhone),
       avatar: (account.sellerPlan ?? "free") === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || products[0]?.images[0] || "/brand/avatars/seller-duck.jpg?v=2",
       cover: account.stallCover || products[0]?.images[0],
       bio: account.stallBio,

@@ -4,12 +4,7 @@ import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
 import { cn } from "@/lib/cn";
-import { OptImg } from "@/components/opt-img";
 
-function waDigits(phone: string | undefined) {
-  const digits = (phone ?? "").replace(/\D/g, "");
-  return digits.length >= 8 ? digits : "";
-}
 const GREET = "★★★ *Hello from Souq Battuta* ★★★";
 const GREET_AR = "★★★  *هلا بيك من سوق بطوطة*  ★★★";
 
@@ -71,9 +66,7 @@ export function WhatsAppCta({
   const [live, setLive] = useState<{ lat: number; lng: number } | null>(null);
   const [locNote, setLocNote] = useState("");
   const [sending, setSending] = useState(false);
-
-  const digits = waDigits(shop.phone);
-  if (!digits && !preview) return null;
+  const [sendError, setSendError] = useState("");
 
   if (!user) {
     return (
@@ -134,70 +127,43 @@ export function WhatsAppCta({
     `*المجموع:* ${formatJod(grand)} ✦`,
     ...(addressMessage ? [addressMessage] : []),
   ].join("\n");
-  const photos = lines.map((line) => line.product.images[0]).filter(Boolean).slice(0, 3);
 
   async function sendBoth() {
     if (sending) return;
+    const win = window.open("", "_blank");
     setSending(true);
-    const phone = digits;
+    setSendError("");
     const productName = lines.map((line) => `${line.qty} × ${line.product.name}`).join(", ");
     try {
-      await placeOrder({
+      const res = await placeOrder({
         shopSlug: shop.slug,
         shopName: shop.name,
         productName,
         addressName,
         total: grand,
       });
+      const waPhone = res?.ok ? String(res.waPhone ?? "") : "";
+      if (!/^9627[789]\d{7}$/.test(waPhone)) {
+        win?.close();
+        setSendError(res?.error === "rate"
+          ? "Too many requests, try again later · طلبات كثيرة، جرّب لاحقاً"
+          : lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
+        return;
+      }
+      const href = `https://wa.me/${waPhone}?text=${encodeURIComponent(orderMessage)}`;
+      if (!win) {
+        setSendError(lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
+        return;
+      }
+      win.location.href = href;
       recordWa(shop.slug);
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(orderMessage)}`, "_blank", "noopener");
       onSent?.();
+    } catch {
+      win?.close();
+      setSendError(lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
     } finally {
       setSending(false);
     }
-  }
-
-  if (step === "wa") {
-    return (
-      <div className="overflow-hidden rounded-lg border border-line bg-[#ece5dd]">
-        <div className="flex items-center gap-2 bg-wa-deep px-3 py-2.5 text-white">
-          <button type="button" className="px-2 text-lg" onClick={() => setStep("idle")} aria-label={t.back}>
-            ‹
-          </button>
-          <OptImg src={shop.avatar} alt="" className="size-9 rounded-full object-cover" />
-          <div>
-            <div className="text-sm font-semibold">{shop.name}</div>
-            <div className="text-[11px] opacity-80">{digits}</div>
-          </div>
-        </div>
-        <div className="p-4">
-          <div className="ms-auto max-w-[86%] space-y-2">
-            <div className="rounded-lg rounded-ee-sm bg-[#dcf8c6] p-3 text-sm leading-relaxed text-ink-soft shadow-sm">
-              {photos.length > 0 && (
-                <div className="mb-2 flex gap-1">
-                  {photos.map((src) => (
-                    <OptImg key={src} src={src} alt="" className="h-16 w-16 rounded-md object-cover" />
-                  ))}
-                </div>
-              )}
-              <OrderText text={orderMessage} />
-            </div>
-          </div>
-          <p className="mt-2 text-end text-[11px] text-mute">now · not sent until they tap send</p>
-          <p className="mt-4 rounded-md bg-[#fff8d5] p-3 text-xs text-[#5a4a20]">
-            This is the seller’s WhatsApp. Souq is no longer in the middle. Send when you are ready.
-          </p>
-          <a
-            className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-md bg-wa font-semibold text-white"
-            href={`https://wa.me/${digits}?text=${encodeURIComponent(orderMessage)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t.openWa}
-          </a>
-        </div>
-      </div>
-    );
   }
 
   if (step === "confirm") {
@@ -242,6 +208,7 @@ export function WhatsAppCta({
           </label>
         )}
         <p className="mt-3 text-sm text-ink">This goes to the shop’s own WhatsApp. · تروح الرسالة على واتساب المحل مباشرة.</p>
+        {sendError && <p className="mt-2 text-sm text-red">{sendError}</p>}
         <div className="mt-3 flex gap-2">
           <button
             type="button"
@@ -250,7 +217,7 @@ export function WhatsAppCta({
           >
             {lang === "ar" ? "عدّل الطلب" : "Edit order"}
           </button>
-          {digits && (
+          {shop.hasWhatsapp !== false && (
           <button
             type="button"
             className="h-12 flex-1 rounded-md bg-wa font-semibold text-white disabled:opacity-50"
