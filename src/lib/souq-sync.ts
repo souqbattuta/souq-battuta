@@ -855,6 +855,43 @@ function readAlgo(data: Record<string, unknown>) {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object") return value as Record<string, unknown>;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      /* body stayed a string */
+    }
+  }
+  return {};
+}
+
+function listingFromRow(row: { id: string; shop_slug: string; name: string; price: string | number | null; image_url: string | null; images: unknown; body: unknown }) {
+  const body = asRecord(row.body);
+  const fromColumn = Array.isArray(row.images) ? row.images.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+  const fromBody = Array.isArray(body.images) ? body.images.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+  const images = fromColumn.length ? fromColumn : fromBody.length ? fromBody : [row.image_url].filter((item): item is string => Boolean(item));
+  return {
+    id: row.id,
+    shopSlug: row.shop_slug,
+    name: row.name,
+    nameAr: typeof body.nameAr === "string" && body.nameAr ? body.nameAr : row.name,
+    price: row.price == null ? 0 : Number(row.price),
+    priceMode: typeof body.priceMode === "string" ? body.priceMode : "price",
+    desc: typeof body.desc === "string" ? body.desc : "",
+    descAr: typeof body.descAr === "string" ? body.descAr : "",
+    images,
+    ...(typeof body.video === "string" && body.video ? { video: body.video } : {}),
+    ...(typeof body.group === "string" && body.group ? { group: body.group } : {}),
+    ...(typeof body.groupAr === "string" && body.groupAr ? { groupAr: body.groupAr } : {}),
+    ...(body.choices ? { choices: body.choices } : {}),
+    ...(typeof body.chart === "string" && body.chart ? { chart: body.chart } : {}),
+    ...(body.hidden === true ? { hidden: true, hideReason: body.hideReason, hideBack: body.hideBack } : {}),
+  };
+}
+
 export const getSouqMe = createServerFn({ method: "GET" }).handler(async () => {
   const sql = await db();
   const phone = await sessionPhone(sql);
@@ -863,6 +900,9 @@ export const getSouqMe = createServerFn({ method: "GET" }).handler(async () => {
   if (!account) return { ok: false as const, error: "auth" as const };
   const orders = await sql<{ id: string; shop_slug: string; status: string; product_name: string; address_name: string }>`
     select id, shop_slug, status, product_name, address_name from souq_orders where buyer_phone = ${phone} order by created_at desc limit 100
+  `;
+  const listings = await sql<{ id: string; shop_slug: string; name: string; price: string | number | null; image_url: string | null; images: unknown; body: unknown }>`
+    select id, shop_slug, name, price, image_url, images, body from souq_listings where owner_phone = ${phone} order by created_at asc
   `;
   const counts = account.shop_slug
     ? await sql<{ views: number; review_count: number; order_count: number }>`
@@ -882,6 +922,7 @@ export const getSouqMe = createServerFn({ method: "GET" }).handler(async () => {
         productName: order.product_name,
         addressName: order.address_name,
       })),
+      listings: listings.map(listingFromRow),
     },
   };
 });

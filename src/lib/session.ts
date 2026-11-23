@@ -14,7 +14,8 @@ export type SocialNetwork = any;
 export type StallSocial = any;
 export type SellerListing = any;
 import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, deleteSouqReview, editHello, helloQuota, listHello, listMyPlaces, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveMyPlace, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
-import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
+import { deviceMarkKey, mergeDeviceSession, persistedSession, scrubStoredSession } from "./device-session";
+import { freePhotoQuota, offloadImages } from "./image-store";
 import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { isReservedBrand, usernameKey } from "./reserved-brand";
@@ -614,6 +615,80 @@ function buyerPack(s: any) {
 }
 let applyingAlgo = false;
 const live = { pending: false, user: false };
+let pullEpoch = 0;
+
+export function noteSessionChange() {
+  pullEpoch += 1;
+}
+
+export function sessionEpoch() {
+  return pullEpoch;
+}
+
+function blankPrivate(lang: string) {
+  return {
+    lang,
+    user: null,
+    signedIn: false,
+    pending: null,
+    accounts: {},
+    favorites: [],
+    bookmarks: [],
+    bookmarkLists: [],
+    followedLists: [],
+    follows: [],
+    pageLikes: [],
+    listings: [],
+    mail: [],
+    reviewReplies: {},
+    sellerSeen: [],
+    sellerCleared: [],
+    sellerHistory: [],
+    addresses: [],
+    interestWords: [],
+    alertWords: [],
+    mutedWords: [],
+    mutedStalls: [],
+    dismissedSuggestions: [],
+    helloHearts: [],
+    algoOrder: DEFAULT_ALGO_ORDER,
+    algoStamps: {},
+    sharedSlugs: [],
+    recentSlugs: [],
+    visitCounts: {},
+    notes: [],
+    restocks: [],
+    orders: [],
+    ownReviews: [],
+    reviewVotes: {},
+    removedReviews: [],
+    reports: [],
+    souqMail: [],
+    staff: false,
+    promoRedemptions: [],
+  };
+}
+
+function wipeDeviceMarks() {
+  try {
+    const drop: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && deviceMarkKey(key)) drop.push(key);
+    }
+    for (const key of drop) localStorage.removeItem(key);
+  } catch {
+    /* private mode */
+  }
+}
+
+function writeDeviceSession(state: any) {
+  try {
+    localStorage.setItem("souq-battuta-session", JSON.stringify({ state: persistedSession(state), version: 0 }));
+  } catch {
+    /* private mode */
+  }
+}
 
 function touchAlgo(get: any, key: string) {
   const stamps = { ...(get().algoStamps ?? {}) };
@@ -690,6 +765,7 @@ const useSession = create<any>()(
     (set: any, get: any) => ({
       lang: "en",
       user: null,
+      signedIn: false,
       pending: null,
       accounts: {},
       favorites: [],
@@ -787,10 +863,12 @@ const useSession = create<any>()(
         }
         delete account.password;
         const user = toUser(account);
+        noteSessionChange();
         set({
           user,
+          signedIn: true,
           pending: null,
-          accounts: { ...get().accounts, [account.phone]: account },
+          accounts: { [account.phone]: account },
           notes: account.role === "buyer" ? account.notes ?? [] : get().notes
         });
         clearJoinPending();
@@ -804,7 +882,6 @@ const useSession = create<any>()(
         return saved;
       },
       signIn: async (phone: any, password: any, asRole = "buyer") => {
-        live.user = true;
         const p = normalizePhone(phone);
         if (!isValidArabPhone(p)) return { ok: false, error: "phone" };
         if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return { ok: false, error: "password" };
@@ -817,47 +894,29 @@ const useSession = create<any>()(
         if (!remote.ok) return remote;
         const account: any = { ...remote.account, usernameHistory: remote.account.usernameHistory ?? [] };
         delete account.password;
-        const leftover = [...(account.addresses ?? []), ...(get().addresses ?? [])].filter((item: any) => item?.lat != null && item?.name);
+        live.user = true;
+        noteSessionChange();
         set({
           user: toUser(account),
+          signedIn: true,
           ...buyerLists(account),
-          addresses: leftover,
-          accounts: { ...get().accounts, [p]: { ...account, addresses: [] } }
+          addresses: [],
+          orders: [],
+          accounts: { [p]: { ...account, addresses: [] } }
         });
         return { ok: true };
       },
-      signOut: () => {
+      dropSharedAccount: () => {
+        noteSessionChange();
         live.user = true;
+        const next = blankPrivate(get().lang === "ar" ? "ar" : "en");
+        wipeDeviceMarks();
+        writeDeviceSession(next);
+        set(next);
+      },
+      signOut: () => {
         void signOutSouq();
-        try { localStorage.removeItem("souq-sync-token"); } catch {}
-        const s = get();
-        const phone = s.user?.phone;
-        const prev = phone ? s.accounts[phone] : void 0;
-        const packed = { ...buyerPack(s), addresses: [] };
-        set({
-          user: null,
-          favorites: [],
-          bookmarks: [],
-          bookmarkLists: [],
-          followedLists: [],
-          follows: [],
-          pageLikes: [],
-          ...buyerLists(),
-          accounts: prev && phone && s.user ? {
-            ...s.accounts,
-            [phone]: {
-              ...prev,
-              ...packed,
-              username: s.user.username,
-              displayName: s.user.displayName || s.user.username,
-              city: s.user.city || "",
-              bio: s.user.bio || "",
-              address: s.user.address || "",
-              joinedAt: s.user.joinedAt,
-              usernameHistory: s.user.usernameHistory ?? []
-            }
-          } : s.accounts
-        });
+        get().dropSharedAccount();
       },
       updateProfile: (patch: any) => {
         const user = get().user;
@@ -991,37 +1050,20 @@ const useSession = create<any>()(
         }
         withBuyer(get, set, { addresses: get().addresses.filter((item: any) => item.id !== id) });
       },
-      loadPlaces: async (seed?: any[]) => {
+      loadPlaces: async (_seed?: any[]) => {
         const user = get().user;
-        if (!user || user.role !== "buyer") return;
-        const phone = user.phone;
-        const flag = `souq-places-moved:${phone}`;
-        let moved = false;
-        try { moved = localStorage.getItem(flag) === "1"; } catch { /* private mode */ }
-        const seen = new Set<string>();
-        const local = (seed ?? get().addresses ?? []).filter((item: any) => {
-          if (item?.lat == null || !String(item?.name ?? "").trim()) return false;
-          const key = `${String(item.name).trim().toLowerCase()}|${Number(item.lat).toFixed(4)}|${Number(item.lng).toFixed(4)}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        if (!moved && local.length) {
-          let failed = false;
-          for (const item of local.slice(0, 10)) {
-            try {
-              const res = await saveMyPlace({ data: { name: String(item.name).trim().slice(0, 30), label: String(item.line ?? "").trim().slice(0, 160), lat: Number(item.lat), lng: Number(item.lng) } });
-              if (!res?.ok && res?.error !== "limit") failed = true;
-            } catch {
-              failed = true;
-            }
-          }
-          if (failed) return;
+        if (!user || user.role !== "buyer") {
+          if (!user && (get().addresses ?? []).length) set({ addresses: [] });
+          return;
         }
-        try { localStorage.setItem(flag, "1"); } catch { /* private mode */ }
+        const phone = user.phone;
         try {
           const res = await listMyPlaces();
-          if (!res?.ok || get().user?.phone !== phone) return;
+          if (get().user?.phone !== phone) return;
+          if (!res?.ok) {
+            if (res?.error === "auth") get().dropSharedAccount();
+            return;
+          }
           withBuyer(get, set, { addresses: res.places });
         } catch { /* signed-in list stays empty until the next try */ }
       },
@@ -2154,32 +2196,20 @@ const useSession = create<any>()(
     }),
     {
       name: "souq-battuta-session",
-      merge: (persisted: any, current: any) => {
-        const next = { ...current, ...(persisted ?? {}) };
-        if (live.pending) next.pending = current.pending ?? readJoinPending();
-        if (live.user) {
-          next.user = current.user;
-          next.accounts = { ...(persisted?.accounts ?? {}), ...(current.accounts ?? {}) };
-        }
-        if (!next.pending?.phone) {
-          const saved = readJoinPending();
-          if (saved?.phone) next.pending = saved;
-        }
-        return next;
-      },
-      partialize: (state: any) => {
-        const accounts: Record<string, any> = {};
-        const rawAccounts = (state.accounts ?? {}) as Record<string, any>;
-        for (const [phone, account] of Object.entries(rawAccounts)) {
-          if (!account || typeof account !== "object") continue;
-          const copy = { ...(account as any) };
-          delete copy.password;
-          accounts[phone] = copy;
-        }
-        const pending = state.pending ? { ...state.pending } : null;
-        if (pending) delete pending.password;
-        return { ...state, accounts, pending };
-      },
+      merge: (persisted: any, current: any) => mergeDeviceSession(persisted, current, {
+        liveUser: live.user,
+        livePending: live.pending,
+        joinPending: readJoinPending(),
+      }),
+      partialize: (state: any) => persistedSession({
+        lang: state.lang,
+        signedIn: Boolean(state.signedIn || state.user),
+        follows: state.follows,
+        pageLikes: state.pageLikes,
+        interestWords: state.interestWords,
+        mutedWords: state.mutedWords,
+        recentSlugs: state.recentSlugs,
+      }),
       storage: createJSONStorage(() => ({
         getItem: async (name) => {
           const raw = localStorage.getItem(name);
@@ -2187,13 +2217,23 @@ const useSession = create<any>()(
           try {
             const parsed = JSON.parse(raw);
             const state = parsed?.state ?? parsed;
-            if (state?.accounts) {
-              for (const account of rows(state.accounts)) {
-                if (account && typeof account === "object") delete account.password;
-              }
+            scrubStoredSession(state);
+            const clean = persistedSession({
+              lang: state?.lang,
+              signedIn: state?.signedIn === true || Boolean(state?.user),
+              follows: state?.follows,
+              pageLikes: state?.pageLikes,
+              interestWords: state?.interestWords,
+              mutedWords: state?.mutedWords,
+              recentSlugs: state?.recentSlugs,
+            });
+            const wrapped = JSON.stringify({ state: clean, version: typeof parsed?.version === "number" ? parsed.version : 0 });
+            try {
+              localStorage.setItem(name, wrapped);
+            } catch {
+              /* private mode */
             }
-            if (state?.pending) delete state.pending.password;
-            return JSON.stringify(await hydrateImages(parsed));
+            return wrapped;
           } catch {
             try {
               localStorage.removeItem(name);

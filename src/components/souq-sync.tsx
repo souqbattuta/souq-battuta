@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { getSouqMe, pushSouq } from "@/lib/souq-sync";
 import { slugHasPhone } from "@/lib/site";
-import { useSession } from "@/lib/session";
+import { sessionEpoch, useSession } from "@/lib/session";
 
 const PRIVATE = ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone"];
 
@@ -21,54 +21,77 @@ export function SouqSync() {
     let lastPushed = "";
 
     async function pull() {
+      const epoch = sessionEpoch();
       try {
         const me = await getSouqMe();
-        if (stopped || !me.ok || !me.account) return;
+        if (stopped || epoch !== sessionEpoch()) return;
+        if (!me.ok || !me.account) {
+          if ("error" in me && me.error === "auth") {
+            const state = useSession.getState() as {
+              signedIn?: boolean;
+              user?: unknown;
+              addresses?: unknown[];
+              orders?: unknown[];
+              dropSharedAccount?: () => void;
+            };
+            if (state.signedIn || state.user || (state.addresses?.length ?? 0) > 0 || (state.orders?.length ?? 0) > 0) {
+              state.dropSharedAccount?.();
+            }
+          }
+          return;
+        }
         const account = me.account as {
           phone?: string;
           displayName?: string;
           shopName?: string;
+          shopSlug?: string;
+          orders?: { shopSlug?: string }[];
+          listings?: { shopSlug?: string }[];
           algoStamps?: Record<string, number>;
           interestWords?: string[];
           algoOrder?: string[];
           mutedWords?: string[];
           mutedStalls?: string[];
+          googleShopping?: boolean;
         };
-        const state = useSession.getState() as { user?: { phone?: string; displayName?: string } | null };
+        const { orders: serverOrders = [], listings: serverListings = [], ...profile } = account;
+        const state = useSession.getState() as { user?: { phone?: string; displayName?: string; shopSlug?: string } | null; listings?: { shopSlug?: string }[]; signedIn?: boolean };
         if (state.user?.phone && account.phone && state.user.phone !== account.phone) return;
+        if (epoch !== sessionEpoch()) return;
         const phone = account.phone;
         const prevAccounts = useSession.getState().accounts;
         const prev = phone ? prevAccounts[phone] : undefined;
-        const nextSlug = String((account as { shopSlug?: string }).shopSlug ?? "");
-        const prevSlug = String(prev?.shopSlug ?? (state.user as { shopSlug?: string } | null)?.shopSlug ?? "");
+        const nextSlug = String(account.shopSlug ?? "");
+        const prevSlug = String(prev?.shopSlug ?? state.user?.shopSlug ?? "");
         const move = Boolean(nextSlug && prevSlug && nextSlug !== prevSlug && slugHasPhone(prevSlug));
-        const live = useSession.getState() as { listings?: { shopSlug?: string }[]; orders?: { shopSlug?: string }[] };
+        const live = useSession.getState() as { listings?: { shopSlug?: string }[] };
+        const orders = move ? remapShopSlug(serverOrders, prevSlug, nextSlug) : serverOrders;
+        const haveListings = (live.listings ?? []).length > 0;
+        const listings = haveListings ? undefined : move ? remapShopSlug(serverListings, prevSlug, nextSlug) : serverListings;
         useSession.setState({
-          user: { ...(state.user ?? {}), ...account, displayName: account.shopName || account.displayName || state.user?.displayName },
-          ...(move
-            ? {
-                listings: remapShopSlug(live.listings, prevSlug, nextSlug),
-                orders: remapShopSlug(live.orders, prevSlug, nextSlug),
-              }
-            : {}),
-          ...(phone && prev
+          signedIn: true,
+          user: { ...(state.user ?? {}), ...profile, displayName: account.shopName || account.displayName || state.user?.displayName },
+          orders,
+          ...(listings ? { listings } : {}),
+          ...(move && haveListings ? { listings: remapShopSlug(live.listings, prevSlug, nextSlug) } : {}),
+          ...(phone
             ? {
                 accounts: {
-                  ...prevAccounts,
                   [phone]: {
-                    ...prev,
+                    ...(prev ?? {}),
+                    ...profile,
                     ...(nextSlug ? { shopSlug: nextSlug } : {}),
                     ...(move
                       ? {
-                          listings: remapShopSlug(prev.listings as { shopSlug?: string }[] | undefined, prevSlug, nextSlug),
-                          orders: remapShopSlug(prev.orders as { shopSlug?: string }[] | undefined, prevSlug, nextSlug),
+                          listings: remapShopSlug((prev?.listings as { shopSlug?: string }[] | undefined) ?? live.listings, prevSlug, nextSlug),
+                          orders,
                         }
                       : {}),
-                    googleShopping: (account as { googleShopping?: boolean }).googleShopping !== false,
+                    googleShopping: account.googleShopping !== false,
                   },
                 },
               }
-            : {}),
+            : { accounts: {} }),
         });
         const apply = (useSession.getState() as { applyRemoteAlgo?: (algo: unknown) => void }).applyRemoteAlgo;
         if (apply && account.algoStamps) apply(account);
@@ -123,8 +146,9 @@ export function SouqSync() {
     const poll = window.setInterval(() => void pull(), 8000);
     const onFocus = () => void pull();
     window.addEventListener("focus", onFocus);
-    const unsub = useSession.subscribe(((state: { user?: { phone?: string } | null; accounts: Record<string, unknown> }, prev: { accounts?: Record<string, unknown> }) => {
+    const unsub = useSession.subscribe(((state: { user?: { phone?: string } | null; accounts: Record<string, unknown> }, prev: { user?: { phone?: string } | null; accounts?: Record<string, unknown> }) => {
       const phone = state.user?.phone;
+      if (phone && phone !== prev?.user?.phone) void pull();
       if (!phone || !prev?.accounts) return;
       if (state.accounts[phone] === prev.accounts[phone]) return;
       schedule();
