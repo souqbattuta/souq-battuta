@@ -490,7 +490,7 @@ function SellerDesk() {
                   if (!res.ok && res.error === "otp") {
                     void requestWhatsappChange({ data: { phone: entered } }).then((sent) => {
                       if (!sent.ok) {
-                        setContactError(sent.error === "rate" || sent.error === "cooldown" ? (ar ? "انتظر قليلاً ثم أعد المحاولة." : "Wait a moment, then try again.") : sent.message || WHATSAPP_REQUIRED);
+                        setContactError(sent.error === "rate" ? t.otpRate : sent.error === "cooldown" ? (ar ? "انتظر قليلاً ثم أعد المحاولة." : "Wait a moment, then try again.") : sent.message || WHATSAPP_REQUIRED);
                         return;
                       }
                       setWaPending(sent.phone);

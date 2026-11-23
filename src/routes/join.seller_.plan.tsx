@@ -111,7 +111,7 @@ function SellerPlanPage() {
     });
     setLoading(false);
     if (!joined.ok) {
-      setPromoError(joined.error === "reserved" ? t.nameReserved : joined.error === "taken" ? t.usernameTaken : joined.error === "unconfigured" ? (ar ? "واتساب غير موصول بعد." : "WhatsApp is not set up on this site yet.") : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : joined.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : ar ? "تعذر إرسال الرمز. الرمز التجريبي 424242 ما زال يعمل إن كانت الخطوة الأولى محفوظة." : "The code could not be sent. The test code 424242 still works if step one was saved.");
+      setPromoError(joined.error === "reserved" ? t.nameReserved : joined.error === "taken" ? t.usernameTaken : joined.error === "unconfigured" ? t.otpUnconfigured : joined.error === "missing" ? (ar ? "ابدأ من الخطوة الأولى." : "Start from step one.") : joined.error === "trial" ? (ar ? "هذا الرقم استخدم التجربة المجانية. اختر خطة مدفوعة لفتح الدكان." : "This phone number has already used its free trial. Choose a paid plan to open your shop.") : joined.error === "rate" || joined.error === "cooldown" ? t.otpRate : t.otpSend);
       return;
     }
     remember({ plan: gift?.plan ?? chosen, billingPeriod: payment?.period, paymentMethod: payment?.method ?? "free", paymentRef: payment?.ref, promoCode: gift?.code, promoMonths: gift?.months });

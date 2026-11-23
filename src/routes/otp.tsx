@@ -55,7 +55,7 @@ function OtpPage() {
     const res = await sendSouqOtp({ data: { phone } });
     if (!res.ok) {
       if (res.retryAfter) setWait(res.retryAfter);
-      setError(res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
+      setError(res.error === "unconfigured" ? t.otpUnconfigured : res.error === "rate" || res.error === "cooldown" ? t.otpRate : t.otpSend);
       return;
     }
     setWait(res.retryAfter || 60);

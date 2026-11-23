@@ -42,7 +42,7 @@ function ForgotPage() {
     const res = await requestPasswordReset({ data: { phone: nextPhone } });
     setLoading(false);
     if (!res.ok) {
-      setError(res.error === "phone" ? t.invalidPhone : t.otpRate);
+      setError(res.error === "phone" ? t.invalidPhone : res.error === "unconfigured" ? t.otpUnconfigured : t.otpRate);
       return;
     }
     setPhone(nextPhone);

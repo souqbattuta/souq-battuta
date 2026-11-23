@@ -4,6 +4,7 @@ import { PLANS, SELLER_CATEGORY_IDS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalize
 import { rankHello } from "@/lib/hello";
 import { checkPromo } from "@/lib/promo-codes";
 import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
+import { allowDailyCodeSend, resetUnsent, signupUnsent } from "@/lib/otp-limit";
 import { queueOwnedMedia, sweepHelloStorage } from "@/lib/hello-cleanup";
 import { effectivePlan } from "@/lib/hello-archive";
 import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
@@ -444,13 +445,19 @@ export const sendSouqOtp = createServerFn({ method: "POST" })
     }
     if (!(await hitRate(sql, `ip:otp:${ip}`, 8, 3600))) return { ok: false as const, error: "rate" as const, retryAfter: 3600 };
     if (!(await hitRate(sql, `phone:otp:${phone}`, 5, 3600))) return { ok: false as const, error: "rate" as const, retryAfter: 3600 };
+    if (!(await allowDailyCodeSend((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, phone))) {
+      return { ok: false as const, error: "rate" as const, retryAfter: 3600 };
+    }
     const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
     const salt = s.randomBytes(16).toString("hex");
     const { sendWhatsAppCode } = await import("@/lib/whatsapp-otp");
     const sent = await sendWhatsAppCode(phone, code);
-    if (!sent.ok && sent.error !== "unconfigured") return { ok: false as const, error: sent.error, retryAfter: 0 };
-    if (sent.ok) {
-      await sql`
+    if (!sent.ok) {
+      const fallback = signupUnsent(sent.error, allowTestOtp());
+      if (!fallback.ok) return { ok: false as const, error: fallback.error, retryAfter: 0 };
+      return { ok: true as const, retryAfter: 60 };
+    }
+    await sql`
         insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at, purpose)
         values (${phone}, ${hashOtp(s, code, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now(), 'signup')
         on conflict (phone) do update set
@@ -461,7 +468,6 @@ export const sendSouqOtp = createServerFn({ method: "POST" })
           sent_at = now(),
           purpose = 'signup'
       `;
-    }
     return { ok: true as const, retryAfter: 60 };
   });
 
@@ -737,13 +743,18 @@ export const requestPasswordReset = createServerFn({ method: "POST" })
     `;
     const age = recent[0] ? Date.now() - new Date(recent[0].sent_at).getTime() : 60_000;
     if (recent[0]?.purpose === "reset" && age < 60_000) return { ok: true as const, retryAfter: 60 };
+    if (!(await allowDailyCodeSend((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, phone))) {
+      return { ok: false as const, error: "rate" as const };
+    }
     const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
     let store = code;
     try {
       const { sendWhatsAppCode } = await import("@/lib/whatsapp-otp");
       const sent = await sendWhatsAppCode(phone, code);
       if (!sent.ok) {
-        if (!(sent.error === "unconfigured" && allowTestOtp())) return { ok: true as const, retryAfter: 60 };
+        const fallback = resetUnsent(sent.error, allowTestOtp());
+        if (!fallback.ok) return { ok: false as const, error: "unconfigured" as const };
+        if (!fallback.storeTest) return { ok: true as const, retryAfter: 60 };
         store = "424242";
       }
     } catch (error) {
@@ -1009,6 +1020,9 @@ export const requestWhatsappChange = createServerFn({ method: "POST" })
     const recent = await sql<{ sent_at: string }>`select sent_at from souq_otp where phone = ${whatsapp}`;
     if (recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 60_000) {
       return { ok: false as const, error: "cooldown" as const };
+    }
+    if (!(await allowDailyCodeSend((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, whatsapp))) {
+      return { ok: false as const, error: "rate" as const };
     }
     const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
     const salt = s.randomBytes(16).toString("hex");
