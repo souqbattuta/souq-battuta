@@ -57,7 +57,7 @@ export function isPrivatePath(path: string) {
   return false;
 }
 
-/** Prompt 19 retires stall-<digits>. Until then these URLs stay out of Google. */
+/** A phone-digit slug stays out of the sitemap and out of Google. */
 export function slugHasPhone(slug: string) {
   return /^stall-\d+$/i.test(slug) || /\d{7,}/.test(slug);
 }

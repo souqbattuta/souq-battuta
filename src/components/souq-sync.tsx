@@ -1,8 +1,18 @@
 import { useEffect } from "react";
 import { getSouqMe, pushSouq } from "@/lib/souq-sync";
+import { slugHasPhone } from "@/lib/site";
 import { useSession } from "@/lib/session";
 
 const PRIVATE = ["password", "role", "sellerPlan", "plan", "shopSlug", "orders", "messages", "phone"];
+
+function remapShopSlug<T>(items: T[] | undefined, from: string, to: string) {
+  if (!Array.isArray(items)) return items;
+  return items.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const row = item as { shopSlug?: string };
+    return row.shopSlug === from ? { ...row, shopSlug: to } : item;
+  });
+}
 
 export function SouqSync() {
   useEffect(() => {
@@ -29,10 +39,35 @@ export function SouqSync() {
         const phone = account.phone;
         const prevAccounts = useSession.getState().accounts;
         const prev = phone ? prevAccounts[phone] : undefined;
+        const nextSlug = String((account as { shopSlug?: string }).shopSlug ?? "");
+        const prevSlug = String(prev?.shopSlug ?? (state.user as { shopSlug?: string } | null)?.shopSlug ?? "");
+        const move = Boolean(nextSlug && prevSlug && nextSlug !== prevSlug && slugHasPhone(prevSlug));
+        const live = useSession.getState() as { listings?: { shopSlug?: string }[]; orders?: { shopSlug?: string }[] };
         useSession.setState({
           user: { ...(state.user ?? {}), ...account, displayName: account.shopName || account.displayName || state.user?.displayName },
+          ...(move
+            ? {
+                listings: remapShopSlug(live.listings, prevSlug, nextSlug),
+                orders: remapShopSlug(live.orders, prevSlug, nextSlug),
+              }
+            : {}),
           ...(phone && prev
-            ? { accounts: { ...prevAccounts, [phone]: { ...prev, googleShopping: (account as { googleShopping?: boolean }).googleShopping !== false } } }
+            ? {
+                accounts: {
+                  ...prevAccounts,
+                  [phone]: {
+                    ...prev,
+                    ...(nextSlug ? { shopSlug: nextSlug } : {}),
+                    ...(move
+                      ? {
+                          listings: remapShopSlug(prev.listings as { shopSlug?: string }[] | undefined, prevSlug, nextSlug),
+                          orders: remapShopSlug(prev.orders as { shopSlug?: string }[] | undefined, prevSlug, nextSlug),
+                        }
+                      : {}),
+                    googleShopping: (account as { googleShopping?: boolean }).googleShopping !== false,
+                  },
+                },
+              }
             : {}),
         });
         const apply = (useSession.getState() as { applyRemoteAlgo?: (algo: unknown) => void }).applyRemoteAlgo;

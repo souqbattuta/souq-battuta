@@ -80,6 +80,9 @@ async function main() {
     };
     const brand = await sweepReservedShops(sweepSql);
     console.log(`[migrate] reserved-name check passed — ${brand.checked} shop(s) checked, ${brand.held} held`);
+    const { sweepPhoneSlugs } = await import("../src/lib/shop-slug.ts");
+    const phone = await sweepPhoneSlugs(sweepSql);
+    console.log(`[migrate] phone-slug check passed — ${phone.moved} shop(s) moved`);
   } finally {
     client.release();
     await pool.end();

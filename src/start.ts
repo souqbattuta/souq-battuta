@@ -1,5 +1,5 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
-import { LEGACY_HOST, SITE_URL } from "@/lib/site";
+import { LEGACY_HOST, SITE_URL, slugHasPhone } from "@/lib/site";
 
 function hostName(request: Request) {
   const raw = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
@@ -12,9 +12,34 @@ function samePath(pathname: string) {
   return pathname;
 }
 
+async function movedShopUrl(pathname: string, search: string, origin: string) {
+  const match = pathname.match(/^\/(?:shop|s)\/([^/]+)(\/.*)?$/);
+  if (!match) return "";
+  let slug = match[1];
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {
+    /* keep the raw segment */
+  }
+  if (!slugHasPhone(slug)) return "";
+  try {
+    const { getSql } = await import("@/lib/db");
+    const { lookupSlugRedirect } = await import("@/lib/shop-slug");
+    const next = await lookupSlugRedirect(await getSql(), slug);
+    if (!next) return "";
+    return `${origin}/shop/${encodeURIComponent(next)}${match[2] || ""}${search}`;
+  } catch {
+    return "";
+  }
+}
+
 const seoHost = createMiddleware({ type: "request" }).server(async ({ request, next, pathname }) => {
   const url = new URL(request.url);
   const host = hostName(request);
+  if ((request.method === "GET" || request.method === "HEAD")) {
+    const moved = await movedShopUrl(pathname || url.pathname, url.search, host === LEGACY_HOST ? SITE_URL : url.origin);
+    if (moved) return new Response(null, { status: 301, headers: { location: moved } });
+  }
   if (host === LEGACY_HOST) {
     const dest = `${SITE_URL}${samePath(pathname || url.pathname)}${url.search}`;
     try {

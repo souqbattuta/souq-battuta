@@ -18,6 +18,7 @@ import { freePhotoQuota, hydrateImages, offloadImages } from "./image-store";
 import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { isReservedBrand, usernameKey } from "./reserved-brand";
+import { shopSlugSeed, usableShopSlug } from "./shop-slug";
 import { clearJoinPending, clearSellerDraft, readJoinPending, saveJoinPending } from "./seller-draft";
 import { campaignStanding, mintSellerCode } from "./seller-campaign";
 const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1e3;
@@ -175,8 +176,9 @@ function sellerWhatsapp(account: any) {
 function slugForSeller(user: any) {
   const owned = SHOPS.find((shop) => shop.phone === user.phone);
   if (owned) return owned.slug;
-  if (user.shopSlug && !SHOPS.some((shop) => shop.slug === user.shopSlug)) return user.shopSlug;
-  return `stall-${user.phone.replace(/\D/g, "").slice(-9)}`;
+  const current = usableShopSlug(user.shopSlug);
+  if (current && !SHOPS.some((shop) => shop.slug === current)) return current;
+  return shopSlugSeed(user.shopName, user.displayName, user.username) || "shop";
 }
 function nameSlug(name: any) {
   return name.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}.-]+/gu, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -1830,7 +1832,7 @@ const useSession = create<any>()(
           if (!res.ok) return res;
           const post = {
             id: res.id,
-            shopSlug: user.shopSlug || slugForSeller(user),
+            shopSlug: slugForSeller(user),
             text,
             lang: input.lang === "ar" ? "ar" : "en",
             image: res.thumbUrl || res.imageUrl,
@@ -1907,7 +1909,7 @@ const useSession = create<any>()(
           if (!res.ok) return res;
           const post = {
             id: res.id,
-            shopSlug: user.shopSlug || slugForSeller(user),
+            shopSlug: slugForSeller(user),
             text: res.text,
             lang: res.lang,
             image: res.thumbUrl || res.imageUrl,

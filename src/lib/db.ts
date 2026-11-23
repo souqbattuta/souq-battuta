@@ -1,5 +1,6 @@
 import { pendingMigrations } from "../../scripts/migration-plan.mjs";
 import { sweepReservedShops } from "./reserved-brand";
+import { sweepPhoneSlugs } from "./shop-slug";
 
 /** Which database backend is active. */
 export type DbSource = "neon" | "pglite";
@@ -96,6 +97,15 @@ async function runBrandSweep(sql: Sql) {
   }
 }
 
+async function runPhoneSweep(sql: Sql) {
+  try {
+    const result = await sweepPhoneSlugs(sql);
+    console.log(`[souq] phone-slug check passed — ${result.moved} shop(s) moved`);
+  } catch (error) {
+    console.error("[souq] phone-slug check failed", error);
+  }
+}
+
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
     // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
@@ -111,6 +121,16 @@ function createNeonSql(): Promise<Sql> {
       return res.rows as T[];
     });
     await runBrandSweep(sql);
+    const client = await pool.connect();
+    try {
+      const bound = toSql(async <T>(text: string, params: unknown[]) => {
+        const res = await client.query(text, params);
+        return res.rows as T[];
+      });
+      await runPhoneSweep(bound);
+    } finally {
+      client.release();
+    }
     return sql;
   })().catch((err) => {
     globalRef.__pgSqlPromise__ = undefined;
@@ -180,6 +200,7 @@ async function createPgliteSql(): Promise<Sql> {
     return result.rows;
   });
   await runBrandSweep(sql);
+  await runPhoneSweep(sql);
   return sql;
 }
 

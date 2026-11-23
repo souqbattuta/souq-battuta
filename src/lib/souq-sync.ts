@@ -7,6 +7,8 @@ import { allowTestOtp, productionDatabaseMissing } from "@/lib/runtime-flags";
 import { queueOwnedMedia, sweepHelloStorage } from "@/lib/hello-cleanup";
 import { effectivePlan } from "@/lib/hello-archive";
 import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
+import { assignShopSlug, renameShopSlug } from "@/lib/shop-slug";
+import { slugHasPhone } from "@/lib/site";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -280,18 +282,16 @@ async function loadAccount(sql: Awaited<ReturnType<typeof db>>, phone: string) {
   return rows[0] ?? null;
 }
 
-function shopSlugFor(phone: string) {
-  const digits = phone.replace(/\D/g, "").slice(-9);
-  return `stall-${digits || "shop"}`;
-}
-
 function namesReserved(...values: unknown[]) {
   return values.some((value) => isReservedBrand(value));
 }
 
 function nameTakenError(error: unknown) {
-  const code = (error as { code?: string } | null)?.code;
-  return code === "taken" || code === "23505";
+  const err = error as { code?: string; constraint?: string } | null;
+  if (!err) return false;
+  if (err.code === "taken") return true;
+  if (err.code !== "23505") return false;
+  return !err.constraint || err.constraint === "souq_accounts_username_key";
 }
 
 async function rejectTakenUsername(sql: Awaited<ReturnType<typeof db>>, phone: string, username: string) {
@@ -551,8 +551,8 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
         if (usedTrial[0]) return { ok: false as const, error: "trial" as const };
         wantsTrial = true;
       }
-      slug = slug ?? shopSlugFor(data.phone);
     }
+    if (role === "seller" && slug && slugHasPhone(slug)) slug = null;
     if (productionDatabaseMissing()) return { ok: false as const, error: "database" as const };
     const shopName = profile.shopName || profile.displayName || profile.username;
     const safe = {
@@ -591,6 +591,17 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
             const err = new Error("trial") as Error & { code?: string };
             err.code = "trial";
             throw err;
+          }
+        }
+        if (role === "seller") {
+          const owned = await trx<{ slug: string }>`select slug from souq_shops where owner_phone = ${data.phone} limit 1`;
+          const current = owned[0]?.slug || slug || "";
+          if (current && !slugHasPhone(current)) {
+            slug = current;
+          } else {
+            const next = await assignShopSlug(trx, [shopName, profile.displayName, profile.username]);
+            if (owned[0]) await renameShopSlug(trx, owned[0].slug, next, data.phone);
+            slug = next;
           }
         }
         if (!existing) {
@@ -2024,6 +2035,11 @@ export const getPublicShop = createServerFn({ method: "GET" })
     const sql = await db();
     const phone = await sessionPhone(sql);
     const { loadShopPage } = await import("@/lib/public-catalog");
-    return loadShopPage(data.slug, phone);
+    const page = await loadShopPage(data.slug, phone);
+    if (page.shop || !slugHasPhone(data.slug)) return page;
+    const { lookupSlugRedirect } = await import("@/lib/shop-slug");
+    const next = await lookupSlugRedirect(sql, data.slug);
+    if (!next) return page;
+    return { ...page, redirect: next };
   });
 

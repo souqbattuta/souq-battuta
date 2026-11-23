@@ -7,6 +7,8 @@ import { Shell } from "@/components/site-header";
 import { PlanBadge } from "@/components/plan-stamp";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { submitSouqPayment } from "@/lib/souq-sync";
+import { shopSlugSeed } from "@/lib/shop-slug";
+import { slugHasPhone } from "@/lib/site";
 import { cn } from "@/lib/cn";
 
 export const Route = createFileRoute("/sell")({ component: SellPage });
@@ -34,7 +36,7 @@ function SellPage() {
       return;
     }
     if (plan === "free") {
-      const slug = user.shopSlug ?? `stall-${user.username.toLowerCase()}`;
+      const slug = user.shopSlug && !slugHasPhone(user.shopSlug) ? user.shopSlug : shopSlugSeed(user.displayName, user.username) || "shop";
       becomeSeller(plan, slug);
       void navigate({ to: "/seller", search: { item: "", tab: "analytics", order: "", note: "" } });
       return;

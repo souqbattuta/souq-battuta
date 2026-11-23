@@ -176,8 +176,9 @@ function SellerDesk() {
   const planId = normalizePlan(user.sellerPlan);
   const plan = PLANS[planId];
   const subCount = Math.max(0, plan.images - 1);
-  const profileSlug = user.shopSlug || slugForSeller(user);
+  const profileSlug = slugForSeller(user);
   const account = accounts[user.phone];
+  const sameShop = (slug: string | undefined) => slug === profileSlug || (Boolean(user.shopSlug) && slug === user.shopSlug);
   const grow = plan.options;
 
   function chooseTab(next: DeskTab) {
@@ -287,10 +288,10 @@ function SellerDesk() {
     setPriceMode("price");
   }
 
-  const mine = (listings ?? []).filter((entry) => entry.shopSlug === profileSlug);
+  const mine = (listings ?? []).filter((entry) => sameShop(entry.shopSlug));
   const inquiries = Object.values(accounts)
     .flatMap((entry) => entry.orders ?? [])
-    .filter((order) => order.shopSlug === profileSlug)
+    .filter((order) => sameShop(order.shopSlug))
     .sort((a, b) => b.at - a.at);
   const alerts = buildSellerAlerts({
     role: user.role,
@@ -299,7 +300,7 @@ function SellerDesk() {
     lang,
     listings: listings ?? [],
     orders: Object.values(accounts).flatMap((entry) => entry.orders ?? []),
-    taps: (waTaps ?? {})[profileSlug] ?? 0,
+    taps: (waTaps ?? {})[profileSlug] ?? (user.shopSlug ? (waTaps ?? {})[user.shopSlug] : 0) ?? 0,
     reviewReplies: reviewReplies ?? {},
     reviews: account?.stallReviews,
     cleared: sellerCleared ?? [],

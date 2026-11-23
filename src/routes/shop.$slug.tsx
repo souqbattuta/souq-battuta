@@ -1,4 +1,4 @@
-import { createFileRoute, notFound, Outlet, useChildMatches } from "@tanstack/react-router";
+import { createFileRoute, notFound, Outlet, redirect, useChildMatches } from "@tanstack/react-router";
 import { getPublicShop } from "@/lib/souq-sync";
 import { keepLang, pageLangOf } from "@/lib/site";
 import { shopHead } from "@/lib/shop-head";
@@ -8,6 +8,7 @@ export const Route = createFileRoute("/shop/$slug")({
   validateSearch: (search: Record<string, unknown>) => keepLang(search),
   loader: async ({ params }) => {
     const res = await getPublicShop({ data: { slug: params.slug } });
+    if ("redirect" in res && res.redirect) throw redirect({ to: "/shop/$slug", params: { slug: res.redirect }, statusCode: 301 });
     if (!res.shop) throw notFound();
     return res;
   },
