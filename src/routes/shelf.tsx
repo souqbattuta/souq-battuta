@@ -6,11 +6,13 @@ import { newPlacesShelf, rankForYou, useTieSeed } from "@/lib/shelves";
 import { Shell } from "@/components/site-header";
 import { PromoViewTracker, ShopTiles } from "@/components/shop-shelf";
 import { OptImg } from "@/components/opt-img";
+import { keepLang } from "@/lib/site";
 
 export const Route = createFileRoute("/shelf")({
   validateSearch: (search: Record<string, unknown>) => ({
     kind: search.kind === "new" || search.kind === "promos" || search.kind === "asked" || search.kind === "viewed" ? search.kind : "for-you",
     aisle: typeof search.aisle === "string" ? search.aisle : "",
+    ...keepLang(search),
   }),
   component: ShelfPage,
 });

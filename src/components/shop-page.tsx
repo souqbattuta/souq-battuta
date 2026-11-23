@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { CATEGORIES, PLANS, deliveryAmount, displayPlan, formatJod, priceLabel, type Product, type Shop } from "@/lib/data";
 import { displayOpen, slugForSeller, useSession } from "@/lib/session";
 import { copy, place } from "@/lib/i18n";
@@ -14,7 +14,9 @@ import { helloLive, type HelloPost } from "@/lib/hello";
 import { isPublishable } from "@/lib/shelves";
 import { shopTopItems } from "@/lib/souq-sync";
 import { photoControlName } from "@/lib/photo-label";
-import { sectionsWithMatches } from "@/lib/shop-search";
+import { Shell } from "@/components/site-header";
+import { usePageLang } from "@/lib/page-lang";
+import { absoluteUrl } from "@/lib/site";
 
 function optionNote(option: { reason?: "unavailable" | "stock" | "sold"; back?: string }, ar: boolean) {
   const reason = { unavailable: ["Unavailable", "غير متاح"], stock: ["Out of stock", "نفدت الكمية"], sold: ["Sold out", "تم البيع"] }[option.reason ?? "sold"];
@@ -22,8 +24,8 @@ function optionNote(option: { reason?: "unavailable" | "stock" | "sold"; back?: 
   return `${ar ? reason[1] : reason[0]}${when ? ` · ${when}` : ""}`;
 }
 
-function useShopChrome(shop: Shop) {
-  const lang = useSession((s) => s.lang);
+function useShopChrome(shop: Shop, focusId?: string) {
+  const lang = usePageLang();
   const t = copy[lang];
   const bookmarks = useSession((s) => s.bookmarks);
   const toggleBookmark = useSession((s) => s.toggleBookmark);
@@ -36,7 +38,19 @@ function useShopChrome(shop: Shop) {
   const [photo, setPhoto] = useState(0);
   const [qty, setQty] = useState(1);
   const [reportOn, setReportOn] = useState(false);
-  const [shot, setShot] = useState<{ src?: string; images?: string[]; index?: number; title: string; text?: string; label?: string } | null>(null);
+  const focus = focusId ? shop.products.find((product) => product.id === focusId) : undefined;
+  const focusName = focus ? (lang === "ar" ? focus.nameAr || focus.name : focus.name) : "";
+  const [shot, setShot] = useState<{ src?: string; images?: string[]; index?: number; title: string; text?: string; label?: string } | null>(
+    focus
+      ? {
+          images: focus.images,
+          index: 0,
+          title: focusName,
+          text: `${priceLabel(focus, lang)}\n${lang === "ar" ? focus.descAr || focus.desc : focus.desc}`,
+          label: focusName,
+        }
+      : null,
+  );
   const images = active?.images ?? [];
   const name = lang === "ar" ? shop.nameAr : shop.name;
   const area = lang === "ar" ? shop.areaAr : shop.area;
@@ -89,7 +103,7 @@ function FlagIcon() {
 const actionBtn = "inline-flex h-11 items-center gap-1.5 rounded-md border border-sand-dark bg-sand px-3 text-sm text-ink";
 
 function publicShopUrl(slug: string) {
-  return new URL(`/shop/${slug}`, window.location.origin).href;
+  return absoluteUrl(`/shop/${slug}`);
 }
 
 function WhatsAppMark() {
@@ -146,7 +160,7 @@ function ShareStall({ title, slug, label, copiedLabel }: { title: string; slug: 
     }, 900);
   }
 
-  const wa = `https://wa.me/?text=${encodeURIComponent(`${title}\n${typeof window === "undefined" ? `/shop/${slug}` : publicShopUrl(slug)}`)}`;
+  const wa = `https://wa.me/?text=${encodeURIComponent(`${title}\n${publicShopUrl(slug)}`)}`;
 
   return (
     <div className="relative" ref={box}>
@@ -491,7 +505,7 @@ function PhotoFrame({
   close.current = onClose;
   const images = shot?.images?.length ? shot.images : shot?.src ? [shot.src] : [];
   const [index, setIndex] = useState(shot?.index ?? 0);
-  const open = Boolean(shot && images.length);
+  const open = Boolean(shot);
   useEffect(() => setIndex(shot?.index ?? 0), [shot]);
   useEffect(() => {
     if (!open) return;
@@ -509,10 +523,18 @@ function PhotoFrame({
       restore.current?.focus?.();
     };
   }, [open]);
-  if (!shot || images.length === 0) return null;
+  if (!shot) return null;
   const n = images.length;
   const src = images[index] ?? images[0];
   const label = shot.label || photoControlName("en", shot.title);
+  if (!src) {
+    return (
+      <article className="mx-auto w-full max-w-3xl px-4 py-6 text-start">
+        <h2 className="font-display text-3xl text-ink">{shot.title}</h2>
+        {shot.text && <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{shot.text}</p>}
+      </article>
+    );
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4" onClick={onClose}>
       <div
@@ -531,7 +553,7 @@ function PhotoFrame({
           </button>
         </div>
         <div className="relative">
-          <OptImg src={src} alt={shot.title} className="max-h-[70vh] w-full bg-cream object-contain" />
+          <OptImg src={src} alt={shot.title} width={800} height={800} eager className="max-h-[70vh] w-full bg-cream object-contain" />
           {n > 1 && (
             <>
               <button
@@ -623,18 +645,20 @@ function Gallery({
   );
 }
 
-export function ShopView({ shop }: { shop: Shop }) {
+export function ShopView({ shop, focusId }: { shop: Shop; focusId?: string }) {
   return (
     <div className="shop-view">
-      <PublicStall shop={shop} />
+      <PublicStall shop={shop} focusId={focusId} />
     </div>
   );
 }
 
-function PublicStall({ shop }: { shop: Shop }) {
-  const ui = useShopChrome(shop);
+function PublicStall({ shop, focusId }: { shop: Shop; focusId?: string }) {
+  const ui = useShopChrome(shop, focusId);
   const { t, name, area } = ui;
   const ar = ui.lang === "ar";
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   const user = useSession((s) => s.user);
   const accounts = useSession((s) => s.accounts);
   const follows = useSession((s) => s.follows) ?? [];
@@ -714,7 +738,7 @@ function PublicStall({ shop }: { shop: Shop }) {
       <div className="stall-cover">
         {shop.cover ? (
           <button type="button" className="stall-cover-photo" onClick={() => ui.setShot({ src: shop.cover, title: name, text: ar ? shop.bioAr : shop.bio, label: name })}>
-            <FramedImage src={shop.cover} frameId={`cover:${shop.slug}`} className="absolute inset-0 h-full w-full" />
+            <FramedImage src={shop.cover} frameId={`cover:${shop.slug}`} alt={name} width={1200} height={630} eager className="absolute inset-0 h-full w-full" />
           </button>
         ) : (
           <div className="stall-cover-empty" aria-hidden="true" />
@@ -724,7 +748,7 @@ function PublicStall({ shop }: { shop: Shop }) {
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </Link>
           <Link to="/home" className="stall-cover-brand">
-            <img src="/brand/duck-mark.png" alt="" />
+            <img src="/brand/duck-mark.png" alt="" width={24} height={24} />
             <span>Souq Battuta</span>
           </Link>
           <div className="stall-cover-tools">
@@ -734,14 +758,14 @@ function PublicStall({ shop }: { shop: Shop }) {
         </div>
         <div className="stall-motif" aria-hidden="true" />
         <button type="button" className="stall-logo" onClick={() => ui.setShot({ src: shop.avatar, title: name, label: name })}>
-          <FramedImage src={shop.avatar || "/brand/avatars/default-duck.jpg"} frameId={`avatar:${shop.slug}`} alt="" className="stall-logo-photo" />
+          <FramedImage src={shop.avatar || "/brand/avatars/default-duck.jpg"} frameId={`avatar:${shop.slug}`} alt={name} width={168} height={168} className="stall-logo-photo" />
         </button>
       </div>
       <main className="stall-sheet">
-        {ui.own && !isPublishable(shop) && (
+        {ready && ui.own && !isPublishable(shop) && (
           <div className="mx-4 mt-4 rounded-md border-2 border-[#FFB705] bg-[#fff8e6] px-4 py-3 text-sm text-[#0B2A5B]">
             <p>Your shop is hidden until you add a WhatsApp number for orders. · دكانك مخفي لحد ما تضيف رقم واتساب للطلبات.</p>
-            <Link to="/seller" search={{ tab: "edit" }} className="mt-2 inline-flex h-11 items-center rounded-md bg-ink px-4 font-semibold text-cream">Add WhatsApp · أضف واتساب</Link>
+            <Link to="/seller" search={{ tab: "edit", item: "", order: "", note: "" }} className="mt-2 inline-flex h-11 items-center rounded-md bg-ink px-4 font-semibold text-cream">Add WhatsApp · أضف واتساب</Link>
           </div>
         )}
         <p className="stall-kicker">{[catLabel, area].filter(Boolean).join(" · ")}</p>
@@ -776,7 +800,7 @@ function PublicStall({ shop }: { shop: Shop }) {
             <span>Hello, World!</span>
           </button>
           <button type="button" onClick={() => setTab("reviews")}>
-            <i><img src="/brand/duck-mark.png" alt="" /></i>
+            <i><img src="/brand/duck-mark.png" alt="" width={30} height={30} /></i>
             <span>{t.reviews}</span>
           </button>
           {video && (
@@ -832,17 +856,21 @@ function PublicStall({ shop }: { shop: Shop }) {
         {tab !== "inquire" ? (
           <div className="stall-grid">
             {shop.products.length === 0 && <NewOnSouq lang={ui.lang} />}
-            {shown.flatMap((group) => group.items).map((product) => (
-              <button key={product.id} type="button" className="stall-item" onClick={() => ui.setShot({ images: product.images, index: 0, title: ar ? product.nameAr : product.name, text: `${priceLabel(product, ui.lang)}\n${ar ? product.descAr : product.desc}`, label: ar ? product.nameAr : product.name })}>
-                <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" />
+            {shown.flatMap((group) => group.items).map((product) => {
+              const itemName = ar ? product.nameAr || product.name : product.name;
+              return (
+              <Link key={product.id} to="/shop/$slug/i/$itemId" params={{ slug: shop.slug, itemId: product.id }} search={ar ? { lang: "ar" } : {}} className="stall-item" aria-label={itemName}>
+                <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt={itemName} width={400} height={400} />
+                <span className="sr-only">{itemName}</span>
                 <b>{priceLabel(product, ui.lang)}</b>
                 {product.images.length > 1 && (
                   <span className="stall-more-photos" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><rect x="7" y="7" width="12" height="12" rx="2" /><rect x="4" y="4" width="12" height="12" rx="2" /></svg>
                   </span>
                 )}
-              </button>
-            ))}
+              </Link>
+              );
+            })}
           </div>
         ) : (
           <div className="order-list">
@@ -1155,7 +1183,7 @@ function OrderLine({
   return (
     <li id={`order-row-${product.id}`} className={cn("order-row", qty > 0 && "is-on")}>
       <button type="button" className="order-row-main" onClick={onOpen}>
-        <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt="" className="order-row-photo" />
+        <OptImg src={product.images[0] || "/brand/avatars/default-duck.jpg"} alt={name} width={96} height={96} className="order-row-photo" />
         <span className="min-w-0">
           <b>{name}</b>
           <span className="order-row-price">{priceLabel(product, lang)}</span>
@@ -1394,3 +1422,81 @@ function ReviewList({ shop }: { shop: Shop }) {
 }
 
 export { PLANS };
+
+export function MissingShop() {
+  return (
+    <Shell>
+      <main className="px-6 py-16">
+        <h1 className="font-display text-2xl">Stall not found</h1>
+        <Link to="/home" className="mt-4 inline-block underline">
+          Back home
+        </Link>
+      </main>
+    </Shell>
+  );
+}
+
+export function PublicShopPage({ shop, focusId }: { shop: Shop; focusId?: string }) {
+  const viewer = useSession((s) => s.user?.shopSlug);
+  const bumpStallViews = useSession((s) => s.bumpStallViews);
+  const noteVisit = useSession((s) => s.noteVisit);
+  const hash = useRouterState({ select: (state) => state.location.hash });
+  useEffect(() => {
+    if (!isPublishable(shop) || viewer === shop.slug || typeof window === "undefined") return;
+    noteVisit(shop.slug);
+    const key = `viewed:${shop.slug}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    bumpStallViews(shop.slug);
+  }, [bumpStallViews, noteVisit, shop, viewer]);
+  useEffect(() => {
+    const id = hash.replace("#", "");
+    if (!id) return;
+    const timer = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "center" }), 120);
+    return () => window.clearTimeout(timer);
+  }, [hash, shop.slug]);
+  return (
+    <Shell>
+      <ShopView shop={shop} focusId={focusId} />
+      <SellerMail shop={shop} />
+    </Shell>
+  );
+}
+
+function SellerMail({ shop }: { shop: Shop }) {
+  const user = useSession((s) => s.user);
+  const lang = usePageLang();
+  const sendSellerMessage = useSession((s) => s.sendSellerMessage);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+  if (!user || user.role !== "seller" || (user.sellerPlan !== "pro" && user.sellerPlan !== "premium") || user.shopSlug === shop.slug || !shop.allowSellerMail) return null;
+  const ar = lang === "ar";
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const body = String(new FormData(event.currentTarget).get("body") ?? "");
+    const res = sendSellerMessage(shop.slug, body);
+    if (!res.ok) {
+      setSent(false);
+      setError(res.error === "closed" ? (ar ? "هذا الدكان ما بيقبل رسائل." : "This stall is not taking seller messages.") : ar ? "اكتب رسالة." : "Write a message.");
+      return;
+    }
+    setError("");
+    setSent(true);
+    event.currentTarget.reset();
+  }
+
+  return (
+    <form className="mx-auto mb-12 w-full max-w-3xl px-4" onSubmit={onSubmit}>
+      <h2 className="font-display text-2xl">{ar ? "راسل الدكان" : "Message this stall"}</h2>
+      <p className="mt-1 text-sm text-mute">{ar ? "من بائع لبائع، داخل سوق بطوطة." : "Seller to seller, inside Souq Battuta."}</p>
+      <textarea name="body" required rows={3} className="mt-3 w-full rounded-md border border-line bg-white px-3 py-2" />
+      <button type="submit" className="mt-2 h-11 rounded-md bg-ink px-4 text-sm font-semibold text-cream">
+        {ar ? "إرسال" : "Send"}
+      </button>
+      {sent && <p className="mt-2 text-sm text-stamp-green">{ar ? "وصلت للوارد." : "Sent to their inbox."}</p>}
+      {error && <p className="mt-2 text-sm text-red">{error}</p>}
+    </form>
+  );
+}
+

@@ -3,10 +3,12 @@ import { useSession } from "@/lib/session";
 import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { OptImg } from "@/components/opt-img";
+import { keepLang } from "@/lib/site";
 
 export const Route = createFileRoute("/join/")({
   validateSearch: (s: Record<string, unknown>) => ({
     intent: s.intent === "seller" ? ("seller" as const) : ("buyer" as const),
+    ...keepLang(s),
   }),
   search: { middlewares: [stripSearchParams({ intent: "buyer" })] },
   component: JoinPage,

@@ -1344,7 +1344,7 @@ const useSession = create<any>()(
             imageUrl: stored.urls[0],
             thumbUrl: stored.thumbs[0],
             images: stored.urls,
-            body: { nameAr, desc: next.desc, descAr: next.descAr, images: stored.urls, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
+            body: { nameAr, desc: next.desc, descAr: next.descAr, priceMode: next.priceMode, images: stored.urls, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
           },
         });
         if (!saved.ok) return saved;
@@ -1370,7 +1370,7 @@ const useSession = create<any>()(
             imageUrl: nextImages[0],
             thumbUrl: stored.thumbs[0] || nextImages[0],
             images: nextImages,
-            body: { nameAr: listing.nameAr.trim() || name, desc: listing.desc.trim(), descAr: listing.descAr.trim() || listing.desc.trim(), images: nextImages, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
+            body: { nameAr: listing.nameAr.trim() || name, desc: listing.desc.trim(), descAr: listing.descAr.trim() || listing.desc.trim(), priceMode: listing.priceMode ?? "price", images: nextImages, ...(listing.video && !String(listing.video).startsWith("data:") ? { video: listing.video } : {}) },
           },
         });
         if (!saved.ok) return saved;

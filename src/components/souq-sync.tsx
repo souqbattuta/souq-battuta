@@ -26,8 +26,14 @@ export function SouqSync() {
         };
         const state = useSession.getState() as { user?: { phone?: string; displayName?: string } | null };
         if (state.user?.phone && account.phone && state.user.phone !== account.phone) return;
+        const phone = account.phone;
+        const prevAccounts = useSession.getState().accounts;
+        const prev = phone ? prevAccounts[phone] : undefined;
         useSession.setState({
           user: { ...(state.user ?? {}), ...account, displayName: account.shopName || account.displayName || state.user?.displayName },
+          ...(phone && prev
+            ? { accounts: { ...prevAccounts, [phone]: { ...prev, googleShopping: (account as { googleShopping?: boolean }).googleShopping !== false } } }
+            : {}),
         });
         const apply = (useSession.getState() as { applyRemoteAlgo?: (algo: unknown) => void }).applyRemoteAlgo;
         if (apply && account.algoStamps) apply(account);

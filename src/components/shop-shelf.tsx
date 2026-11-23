@@ -8,6 +8,7 @@ import { DuckRating } from "@/components/duck-rating";
 import { OptImg } from "@/components/opt-img";
 import { useSession } from "@/lib/session";
 import { photoControlName } from "@/lib/photo-label";
+import { absoluteUrl } from "@/lib/site";
 
 const PEEK_KEY = "souq-peek";
 
@@ -447,7 +448,7 @@ function PeekMenu({ shop, ar, bar = false }: { shop: Shop; ar: boolean; bar?: bo
   }
 
   function shopUrl() {
-    return new URL(`/shop/${shop.slug}`, window.location.origin).href;
+    return absoluteUrl(`/shop/${shop.slug}`);
   }
 
   async function copyLink() {

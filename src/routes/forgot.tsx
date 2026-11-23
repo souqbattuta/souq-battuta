@@ -5,10 +5,12 @@ import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { OptImg } from "@/components/opt-img";
 import { confirmPasswordReset, requestPasswordReset } from "@/lib/souq-sync";
+import { keepLang } from "@/lib/site";
 
 export const Route = createFileRoute("/forgot")({
   validateSearch: (s: Record<string, unknown>) => ({
     role: s.role === "seller" ? ("seller" as const) : ("buyer" as const),
+    ...keepLang(s),
   }),
   component: ForgotPage,
 });

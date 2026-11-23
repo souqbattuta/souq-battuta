@@ -52,11 +52,17 @@ export function FramedImage({
   frameId,
   className,
   alt = "",
+  width,
+  height,
+  eager = false,
 }: {
   src: string;
   frameId: string;
   className?: string;
   alt?: string;
+  width?: number;
+  height?: number;
+  eager?: boolean;
 }) {
   const [frame, setFrame] = useState<Frame>(CENTER);
   const [shown, setShown] = useState(src);
@@ -70,6 +76,9 @@ export function FramedImage({
     <OptImg
       src={shown}
       alt={alt}
+      width={width}
+      height={height}
+      eager={eager}
       className={cn("object-cover", className)}
       style={{
         objectPosition: `${frame.x}% ${frame.y}%`,

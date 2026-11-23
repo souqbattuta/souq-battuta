@@ -1,188 +1,30 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { createFileRoute, Link, useRouterState } from "@tanstack/react-router";
-import { shopBySlug, isSellerCategory, type Shop } from "@/lib/data";
-import { billingPhase, publicProduct, publicSocials, sellerByPublicSlug, sellerWhatsapp, stallHoursLabel, stallIsOpen, useSession, type BuyerAccount, type SellerListing } from "@/lib/session";
-import { isPublishable } from "@/lib/shelves";
-import { Shell } from "@/components/site-header";
-import { ShopView } from "@/components/shop-page";
+import { createFileRoute, notFound, Outlet, useChildMatches } from "@tanstack/react-router";
+import { getPublicShop } from "@/lib/souq-sync";
+import { keepLang, pageLangOf } from "@/lib/site";
+import { shopHead } from "@/lib/shop-head";
+import { PublicShopPage, MissingShop } from "@/components/shop-page";
 
-function ownedShop(slug: string, accounts: Record<string, BuyerAccount>, listings: SellerListing[], reviewReplies: Record<string, string> = {}): Shop | null {
-  const account = sellerByPublicSlug(slug, accounts);
-  if (!account || shopBySlug(slug)) return null;
-  const premium = account.sellerPlan === "premium";
-  const products = [...(account.listings ?? []), ...listings.filter((item) => item.shopSlug === slug || item.shopSlug === account.shopSlug)]
-    .filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
-    .map((item) => publicProduct(item, premium))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
-  const stored = (account.categories ?? []).filter((id) => isSellerCategory(id));
-  return {
-    slug,
-    name: account.displayName || account.username,
-    nameAr: account.displayName || account.username,
-    area: account.city || "Amman",
-    areaAr: account.city || "عمّان",
-    category: stored[0] ?? "misc",
-    offAisle: (account.categories ?? []).length > 0 && stored.length === 0,
-    categories: stored,
-    plan: account.sellerPlan ?? "free",
-    phone: "",
-    hasWhatsapp: Boolean(sellerWhatsapp(account)),
-    avatar: account.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : account.stallAvatar || "/brand/avatars/default-duck.jpg",
-    cover: account.stallCover,
-    bio: account.stallBio,
-    bioAr: account.stallBioAr || account.stallBio,
-    hours: stallHoursLabel(account),
-    isOpen: stallIsOpen(account),
-    contactWhenClosed: account.contactWhenClosed !== false,
-    allowSellerMail: (account.sellerPlan === "pro" || account.sellerPlan === "premium") && account.allowSellerMail,
-    openNote: account.openNote,
-    openNoteAr: account.openNoteAr,
-    closedNote: account.closedNote,
-    closedNoteAr: account.closedNoteAr,
-    socials: publicSocials(account),
-    views: account.sellerPlan && account.sellerPlan !== "free" ? account.stallViews ?? 0 : undefined,
-    askQty: account.askQty,
-    products,
-    reviews: (account.stallReviews ?? []).map((review, index) => {
-      const { authorPhone: _author, ...rest } = review as typeof review & { authorPhone?: string };
-      return {
-        ...rest,
-        reply: reviewReplies[`${slug}:${index}`] ?? review.reply,
-      };
-    }),
-    mode: "inquire",
-    km: 0,
-  };
-}
-
-export function ShopPage({ slug }: { slug: string }) {
-  const accounts = useSession((s) => s.accounts);
-  const listings = useSession((s) => s.listings);
-  const reviewReplies = useSession((s) => s.reviewReplies);
-  const serverShops = useSession((s) => s.serverShops) as Shop[] | undefined;
-  const shop = useMemo(() => {
-    const base = shopBySlug(slug);
-    const owner = sellerByPublicSlug(slug, accounts);
-    if (owner && billingPhase(owner) === "paused" && !base) return null;
-    if (!base) return ownedShop(slug, accounts, listings ?? [], reviewReplies ?? {}) ?? (serverShops ?? []).find((item) => item.slug === slug) ?? null;
-    const premium = owner?.sellerPlan === "premium";
-    const extra = (listings ?? [])
-      .filter((item) => item.shopSlug === slug)
-      .map((item) => publicProduct(item, Boolean(premium)))
-      .filter((item): item is NonNullable<typeof item> => Boolean(item));
-    const reviews = (base.reviews ?? []).map((review, index) => ({
-      ...review,
-      reply: reviewReplies?.[`${slug}:${index}`] ?? review.reply,
-    }));
-    return {
-      ...base,
-      products: [...extra, ...base.products],
-      reviews,
-      ...(owner
-        ? {
-            avatar: owner.sellerPlan === "free" ? "/brand/avatars/seller-duck.jpg?v=2" : owner.stallAvatar || base.avatar,
-            cover: owner.stallCover || base.cover,
-            phone: "",
-            hasWhatsapp: Boolean(sellerWhatsapp(owner)) || base.hasWhatsapp === true,
-            bio: owner.stallBio || base.bio,
-            bioAr: owner.stallBioAr || owner.stallBio || base.bioAr,
-            isOpen: stallIsOpen(owner),
-            hours: stallHoursLabel(owner) || base.hours,
-            contactWhenClosed: owner.contactWhenClosed !== false,
-            allowSellerMail: (owner.sellerPlan === "pro" || owner.sellerPlan === "premium") && owner.allowSellerMail,
-            openNote: owner.openNote,
-            openNoteAr: owner.openNoteAr,
-            closedNote: owner.closedNote,
-            closedNoteAr: owner.closedNoteAr,
-            socials: publicSocials(owner) ?? base.socials,
-          }
-        : {}),
-    };
-  }, [accounts, listings, reviewReplies, serverShops, slug]);
-  const ensureDirectory = useSession((s) => s.ensureDirectory);
-  const bumpStallViews = useSession((s) => s.bumpStallViews);
-  const noteVisit = useSession((s) => s.noteVisit);
-  useEffect(() => {
-    ensureDirectory();
-  }, [ensureDirectory]);
-  const viewer = useSession((s) => s.user?.shopSlug);
-  const viewerPhone = useSession((s) => s.user?.phone);
-  const owns = Boolean(viewer === slug || (viewerPhone && sellerByPublicSlug(slug, accounts)?.phone === viewerPhone));
-  useEffect(() => {
-    if (!shop || !owns && !isPublishable(shop) || viewer === slug || typeof window === "undefined") return;
-    noteVisit(slug);
-    const key = `viewed:${slug}`;
-    if (sessionStorage.getItem(key)) return;
-    sessionStorage.setItem(key, "1");
-    bumpStallViews(slug);
-  }, [bumpStallViews, noteVisit, owns, shop, slug, viewer]);
-  if (!shop || shop.demo || (!owns && !isPublishable(shop))) {
-    return (
-      <Shell>
-        <main className="px-6 py-16">
-          <h1 className="font-display text-2xl">Stall not found</h1>
-          <Link to="/home" className="mt-4 inline-block underline">
-            Back home
-          </Link>
-        </main>
-      </Shell>
-    );
-  }
-  return (
-    <Shell>
-      <ShopView shop={shop} />
-      <SellerMail shop={shop} />
-    </Shell>
-  );
-}
+export const Route = createFileRoute("/shop/$slug")({
+  validateSearch: (search: Record<string, unknown>) => keepLang(search),
+  loader: async ({ params }) => {
+    const res = await getPublicShop({ data: { slug: params.slug } });
+    if (!res.shop) throw notFound();
+    return res;
+  },
+  head: ({ loaderData, match, matches }): { meta?: any; links?: any } => {
+    const leaf = matches[matches.length - 1];
+    if (leaf && leaf.pathname !== match.pathname) return { meta: [], links: [] };
+    if (!loaderData?.shop) return { meta: [{ title: "Shop | Souq Battuta" }, { name: "robots", content: "noindex, nofollow" }] };
+    return shopHead(loaderData.shop, pageLangOf(match.search), loaderData.indexable);
+  },
+  component: ShopRoute,
+  notFoundComponent: MissingShop,
+});
 
 function ShopRoute() {
-  const { slug } = Route.useParams();
-  const hash = useRouterState({ select: (state) => state.location.hash });
-  useEffect(() => {
-    const id = hash.replace("#", "");
-    if (!id) return;
-    const timer = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "center" }), 120);
-    return () => window.clearTimeout(timer);
-  }, [hash, slug]);
-  return <ShopPage slug={slug} />;
-}
-
-export const Route = createFileRoute("/shop/$slug")({ component: ShopRoute });
-
-function SellerMail({ shop }: { shop: Shop }) {
-  const user = useSession((s) => s.user);
-  const lang = useSession((s) => s.lang);
-  const sendSellerMessage = useSession((s) => s.sendSellerMessage);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
-  if (!user || user.role !== "seller" || (user.sellerPlan !== "pro" && user.sellerPlan !== "premium") || user.shopSlug === shop.slug || !shop.allowSellerMail) return null;
-  const ar = lang === "ar";
-
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const body = String(new FormData(event.currentTarget).get("body") ?? "");
-    const res = sendSellerMessage(shop.slug, body);
-    if (!res.ok) {
-      setSent(false);
-      setError(res.error === "closed" ? (ar ? "هذا الدكان ما بيقبل رسائل." : "This stall is not taking seller messages.") : ar ? "اكتب رسالة." : "Write a message.");
-      return;
-    }
-    setError("");
-    setSent(true);
-    event.currentTarget.reset();
-  }
-
-  return (
-    <form className="mx-auto mb-12 w-full max-w-3xl px-4" onSubmit={onSubmit}>
-      <h2 className="font-display text-2xl">{ar ? "راسل الدكان" : "Message this stall"}</h2>
-      <p className="mt-1 text-sm text-mute">{ar ? "من بائع لبائع، داخل سوق بطوطة." : "Seller to seller, inside Souq Battuta."}</p>
-      <textarea name="body" required rows={3} className="mt-3 w-full rounded-md border border-line bg-white px-3 py-2" />
-      <button type="submit" className="mt-2 h-11 rounded-md bg-ink px-4 text-sm font-semibold text-cream">
-        {ar ? "إرسال" : "Send"}
-      </button>
-      {sent && <p className="mt-2 text-sm text-stamp-green">{ar ? "وصلت للوارد." : "Sent to their inbox."}</p>}
-      {error && <p className="mt-2 text-sm text-red">{error}</p>}
-    </form>
-  );
+  const child = useChildMatches();
+  if (child.length > 0) return <Outlet />;
+  const data = Route.useLoaderData();
+  if (!data?.shop) return <MissingShop />;
+  return <PublicShopPage shop={data.shop} />;
 }

@@ -68,6 +68,7 @@ const pushSchema = z
     stallHours: z.string().trim().max(80).optional(),
     stallForce: z.enum(["auto", "open", "closed"]).optional(),
     whatsappPhone: z.string().trim().max(20).optional(),
+    googleShopping: z.boolean().optional(),
   });
 
 type Profile = z.infer<typeof profileSchema>;
@@ -249,6 +250,7 @@ function publicProfile(phone: string, data: Record<string, unknown>, row: { role
     stallForce: data.stallForce === "open" || data.stallForce === "closed" || data.stallForce === "auto" ? data.stallForce : undefined,
     stallBio: typeof data.stallBio === "string" ? data.stallBio : undefined,
     stallBioAr: typeof data.stallBioAr === "string" ? data.stallBioAr : undefined,
+    googleShopping: data.googleShopping === false ? false : true,
     contactWhenClosed: typeof data.contactWhenClosed === "boolean" ? data.contactWhenClosed : undefined,
     areaLat: typeof data.areaLat === "number" ? data.areaLat : undefined,
     areaLng: typeof data.areaLng === "number" ? data.areaLng : undefined,
@@ -1938,5 +1940,14 @@ export const adminModerate = createServerFn({ method: "POST" })
       await sql`update souq_shops set hidden = true where slug = ${data.targetId}`;
     }
     return { ok: true as const };
+  });
+
+export const getPublicShop = createServerFn({ method: "GET" })
+  .validator(z.object({ slug: z.string().trim().min(1).max(80) }))
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    const { loadShopPage } = await import("@/lib/public-catalog");
+    return loadShopPage(data.slug, phone);
   });
 

@@ -1,6 +1,7 @@
 import { createFileRoute, stripSearchParams } from "@tanstack/react-router";
 import { HelloFeed } from "@/components/hello-board";
 import { Shell } from "@/components/site-header";
+import { keepLang } from "@/lib/site";
 
 type HelloTab = "for-you" | "recent" | "viewed";
 
@@ -14,6 +15,7 @@ export const Route = createFileRoute("/hello")({
     tab: asTab(search.tab),
     at: typeof search.at === "string" ? search.at.replace(/^@/, "") : "",
     post: typeof search.post === "string" ? search.post : "",
+    ...keepLang(search),
   }),
   search: { middlewares: [stripSearchParams({ tab: "for-you", at: "", post: "" })] },
   component: HelloPage,

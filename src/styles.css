@@ -299,7 +299,7 @@ button,[role=button]{cursor:pointer}html{font-family:"Source Serif 4",Noto Naskh
 .shop-section-tabs button{height:30px;flex:none;border-radius:15px;border:1px solid #D3C2A2;background:transparent;padding:0 12px;color:#0B2A5B;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .shop-section-tabs button.is-on{background:#0B2A5B;color:#fff}
 .stall-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;margin-top:12px;text-align:start}
-.stall-item{position:relative;aspect-ratio:1;overflow:hidden;padding:0;border-radius:0;background:#EADBC2}
+.stall-item{position:relative;display:block;aspect-ratio:1;overflow:hidden;padding:0;border-radius:0;background:#EADBC2;color:inherit;text-decoration:none}
 .stall-item img{width:100%;height:100%;object-fit:cover}
 .stall-item b{position:absolute;left:6px;bottom:6px;background:rgba(11,42,91,.9);color:#fff;border-radius:4px;padding:3px 6px;font-size:10.5px}
 .stall-more-photos{position:absolute;top:6px;right:6px;display:grid;color:#fff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}

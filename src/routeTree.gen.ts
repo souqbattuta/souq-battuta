@@ -24,21 +24,25 @@ import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as JoinRouteImport } from './routes/join'
 import { Route as OtpRouteImport } from './routes/otp'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as RulesRouteImport } from './routes/rules'
 import { Route as SellRouteImport } from './routes/sell'
 import { Route as SellerRouteImport } from './routes/seller'
 import { Route as ShelfRouteImport } from './routes/shelf'
 import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as ApiHelloCleanupRouteImport } from './routes/api/hello-cleanup'
 import { Route as BuyerUsernameRouteImport } from './routes/buyer.$username'
 import { Route as CategoryIdRouteImport } from './routes/category.$id'
+import { Route as FeedsGoogleMerchantDotxmlRouteImport } from './routes/feeds/google-merchant[.]xml'
 import { Route as JoinIndexRouteImport } from './routes/join.index'
 import { Route as JoinBuyerRouteImport } from './routes/join.buyer'
 import { Route as JoinSellerRouteImport } from './routes/join.seller'
 import { Route as SSlugRouteImport } from './routes/s.$slug'
 import { Route as ShopSlugRouteImport } from './routes/shop.$slug'
 import { Route as JoinSellerPlanRouteImport } from './routes/join.seller_.plan'
+import { Route as ShopSlugIItemIdRouteImport } from './routes/shop.$slug.i.$itemId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -115,6 +119,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RulesRoute = RulesRouteImport.update({
   id: '/rules',
   path: '/rules',
@@ -140,6 +149,11 @@ const SignInRoute = SignInRouteImport.update({
   path: '/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
@@ -160,6 +174,12 @@ const CategoryIdRoute = CategoryIdRouteImport.update({
   path: '/category/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FeedsGoogleMerchantDotxmlRoute =
+  FeedsGoogleMerchantDotxmlRouteImport.update({
+    id: '/feeds/google-merchant.xml',
+    path: '/feeds/google-merchant.xml',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const JoinIndexRoute = JoinIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -190,6 +210,11 @@ const JoinSellerPlanRoute = JoinSellerPlanRouteImport.update({
   path: '/seller/plan',
   getParentRoute: () => JoinRoute,
 } as any)
+const ShopSlugIItemIdRoute = ShopSlugIItemIdRouteImport.update({
+  id: '/i/$itemId',
+  path: '/i/$itemId',
+  getParentRoute: () => ShopSlugRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -207,21 +232,25 @@ export interface FileRoutesByFullPath {
   '/join': typeof JoinRouteWithChildren
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/welcome': typeof WelcomeRoute
   '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
+  '/feeds/google-merchant.xml': typeof FeedsGoogleMerchantDotxmlRoute
   '/join/buyer': typeof JoinBuyerRoute
   '/join/seller': typeof JoinSellerRoute
   '/s/$slug': typeof SSlugRoute
-  '/shop/$slug': typeof ShopSlugRoute
+  '/shop/$slug': typeof ShopSlugRouteWithChildren
   '/join/': typeof JoinIndexRoute
   '/join/seller/plan': typeof JoinSellerPlanRoute
+  '/shop/$slug/i/$itemId': typeof ShopSlugIItemIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -238,21 +267,25 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxRoute
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/welcome': typeof WelcomeRoute
   '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
+  '/feeds/google-merchant.xml': typeof FeedsGoogleMerchantDotxmlRoute
   '/join/buyer': typeof JoinBuyerRoute
   '/join/seller': typeof JoinSellerRoute
   '/s/$slug': typeof SSlugRoute
-  '/shop/$slug': typeof ShopSlugRoute
+  '/shop/$slug': typeof ShopSlugRouteWithChildren
   '/join': typeof JoinIndexRoute
   '/join/seller/plan': typeof JoinSellerPlanRoute
+  '/shop/$slug/i/$itemId': typeof ShopSlugIItemIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -271,21 +304,25 @@ export interface FileRoutesById {
   '/join': typeof JoinRouteWithChildren
   '/otp': typeof OtpRoute
   '/privacy': typeof PrivacyRoute
+  '/robots.txt': typeof RobotsDottxtRoute
   '/rules': typeof RulesRoute
   '/sell': typeof SellRoute
   '/seller': typeof SellerRoute
   '/shelf': typeof ShelfRoute
   '/sign-in': typeof SignInRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/welcome': typeof WelcomeRoute
   '/api/hello-cleanup': typeof ApiHelloCleanupRoute
   '/buyer/$username': typeof BuyerUsernameRoute
   '/category/$id': typeof CategoryIdRoute
+  '/feeds/google-merchant.xml': typeof FeedsGoogleMerchantDotxmlRoute
   '/join/buyer': typeof JoinBuyerRoute
   '/join/seller': typeof JoinSellerRoute
   '/s/$slug': typeof SSlugRoute
-  '/shop/$slug': typeof ShopSlugRoute
+  '/shop/$slug': typeof ShopSlugRouteWithChildren
   '/join/': typeof JoinIndexRoute
   '/join/seller_/plan': typeof JoinSellerPlanRoute
+  '/shop/$slug/i/$itemId': typeof ShopSlugIItemIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -305,21 +342,25 @@ export interface FileRouteTypes {
     | '/join'
     | '/otp'
     | '/privacy'
+    | '/robots.txt'
     | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
+    | '/sitemap.xml'
     | '/welcome'
     | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
+    | '/feeds/google-merchant.xml'
     | '/join/buyer'
     | '/join/seller'
     | '/s/$slug'
     | '/shop/$slug'
     | '/join/'
     | '/join/seller/plan'
+    | '/shop/$slug/i/$itemId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -336,21 +377,25 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/otp'
     | '/privacy'
+    | '/robots.txt'
     | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
+    | '/sitemap.xml'
     | '/welcome'
     | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
+    | '/feeds/google-merchant.xml'
     | '/join/buyer'
     | '/join/seller'
     | '/s/$slug'
     | '/shop/$slug'
     | '/join'
     | '/join/seller/plan'
+    | '/shop/$slug/i/$itemId'
   id:
     | '__root__'
     | '/'
@@ -368,21 +413,25 @@ export interface FileRouteTypes {
     | '/join'
     | '/otp'
     | '/privacy'
+    | '/robots.txt'
     | '/rules'
     | '/sell'
     | '/seller'
     | '/shelf'
     | '/sign-in'
+    | '/sitemap.xml'
     | '/welcome'
     | '/api/hello-cleanup'
     | '/buyer/$username'
     | '/category/$id'
+    | '/feeds/google-merchant.xml'
     | '/join/buyer'
     | '/join/seller'
     | '/s/$slug'
     | '/shop/$slug'
     | '/join/'
     | '/join/seller_/plan'
+    | '/shop/$slug/i/$itemId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -401,17 +450,20 @@ export interface RootRouteChildren {
   JoinRoute: typeof JoinRouteWithChildren
   OtpRoute: typeof OtpRoute
   PrivacyRoute: typeof PrivacyRoute
+  RobotsDottxtRoute: typeof RobotsDottxtRoute
   RulesRoute: typeof RulesRoute
   SellRoute: typeof SellRoute
   SellerRoute: typeof SellerRoute
   ShelfRoute: typeof ShelfRoute
   SignInRoute: typeof SignInRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   WelcomeRoute: typeof WelcomeRoute
   ApiHelloCleanupRoute: typeof ApiHelloCleanupRoute
   BuyerUsernameRoute: typeof BuyerUsernameRoute
   CategoryIdRoute: typeof CategoryIdRoute
+  FeedsGoogleMerchantDotxmlRoute: typeof FeedsGoogleMerchantDotxmlRoute
   SSlugRoute: typeof SSlugRoute
-  ShopSlugRoute: typeof ShopSlugRoute
+  ShopSlugRoute: typeof ShopSlugRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -521,6 +573,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rules': {
       id: '/rules'
       path: '/rules'
@@ -556,6 +615,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/welcome': {
       id: '/welcome'
       path: '/welcome'
@@ -582,6 +648,13 @@ declare module '@tanstack/react-router' {
       path: '/category/$id'
       fullPath: '/category/$id'
       preLoaderRoute: typeof CategoryIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feeds/google-merchant.xml': {
+      id: '/feeds/google-merchant.xml'
+      path: '/feeds/google-merchant.xml'
+      fullPath: '/feeds/google-merchant.xml'
+      preLoaderRoute: typeof FeedsGoogleMerchantDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/join/': {
@@ -626,6 +699,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinSellerPlanRouteImport
       parentRoute: typeof JoinRoute
     }
+    '/shop/$slug/i/$itemId': {
+      id: '/shop/$slug/i/$itemId'
+      path: '/i/$itemId'
+      fullPath: '/shop/$slug/i/$itemId'
+      preLoaderRoute: typeof ShopSlugIItemIdRouteImport
+      parentRoute: typeof ShopSlugRoute
+    }
   }
 }
 
@@ -645,6 +725,18 @@ const JoinRouteChildren: JoinRouteChildren = {
 
 const JoinRouteWithChildren = JoinRoute._addFileChildren(JoinRouteChildren)
 
+interface ShopSlugRouteChildren {
+  ShopSlugIItemIdRoute: typeof ShopSlugIItemIdRoute
+}
+
+const ShopSlugRouteChildren: ShopSlugRouteChildren = {
+  ShopSlugIItemIdRoute: ShopSlugIItemIdRoute,
+}
+
+const ShopSlugRouteWithChildren = ShopSlugRoute._addFileChildren(
+  ShopSlugRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
@@ -661,27 +753,31 @@ const rootRouteChildren: RootRouteChildren = {
   JoinRoute: JoinRouteWithChildren,
   OtpRoute: OtpRoute,
   PrivacyRoute: PrivacyRoute,
+  RobotsDottxtRoute: RobotsDottxtRoute,
   RulesRoute: RulesRoute,
   SellRoute: SellRoute,
   SellerRoute: SellerRoute,
   ShelfRoute: ShelfRoute,
   SignInRoute: SignInRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   WelcomeRoute: WelcomeRoute,
   ApiHelloCleanupRoute: ApiHelloCleanupRoute,
   BuyerUsernameRoute: BuyerUsernameRoute,
   CategoryIdRoute: CategoryIdRoute,
+  FeedsGoogleMerchantDotxmlRoute: FeedsGoogleMerchantDotxmlRoute,
   SSlugRoute: SSlugRoute,
-  ShopSlugRoute: ShopSlugRoute,
+  ShopSlugRoute: ShopSlugRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

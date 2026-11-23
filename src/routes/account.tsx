@@ -8,6 +8,7 @@ import { Shell } from "@/components/site-header";
 import { OptImg } from "@/components/opt-img";
 import { LocationPicker } from "@/components/location-picker";
 import { SavePlaceSheet } from "@/components/place-picker";
+import { keepLang } from "@/lib/site";
 
 function shopName(shop: Shop, ar: boolean) {
   return ar ? shop.nameAr : shop.name;
@@ -246,6 +247,7 @@ export const Route = createFileRoute("/account")({
   validateSearch: (s: Record<string, unknown>) => ({
     tab: s.tab === "inbox" ? "inbox" as const : s.tab === "saved" ? "saved" as const : "",
     note: typeof s.note === "string" ? s.note : "",
+    ...keepLang(s),
   }),
   component: AccountPage,
 });

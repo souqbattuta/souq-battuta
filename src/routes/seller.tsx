@@ -13,6 +13,7 @@ import { OptImg } from "@/components/opt-img";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { builtInKeywords } from "@/lib/shelves";
 import { confirmWhatsappChange, requestWhatsappChange } from "@/lib/souq-sync";
+import { absoluteUrl, keepLang } from "@/lib/site";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
 type DraftOption = { en: string; ar: string; extra: string; off: boolean; reason: "" | "unavailable" | "stock" | "sold"; back: string };
@@ -33,6 +34,7 @@ export const Route = createFileRoute("/seller")({
     item: typeof s.item === "string" ? s.item : "",
     order: typeof s.order === "string" ? s.order : "",
     note: typeof s.note === "string" ? s.note : "",
+    ...keepLang(s),
   }),
   component: SellerDesk,
 });
@@ -543,6 +545,15 @@ function SellerDesk() {
                   <textarea value={aboutAr} maxLength={TEXT_CAP[planId]} onChange={(event) => setAboutAr(event.target.value)} rows={3} dir="rtl" className="mt-1 w-full rounded-md border border-line px-3 py-2" />
                   <span className="mt-1 block text-xs text-mute">{aboutAr.length} / {TEXT_CAP[planId]}</span>
                 </label>
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-5"
+                    checked={account?.googleShopping !== false}
+                    onChange={(event) => setStall({ googleShopping: event.target.checked })}
+                  />
+                  <span>Show my items on Google Shopping · اعرض منتجاتي على جوجل للتسوق</span>
+                </label>
                 {contactError && <p className="text-sm text-red">{contactError}</p>}
                 <button type="submit" className="h-11 rounded-md bg-ink font-semibold text-cream">{ar ? "حفظ" : "Save"}</button>
               </form>
@@ -927,7 +938,11 @@ function SellerDesk() {
             <button type="button" onClick={() => { setMoreOpen(false); if (planId === "premium" || planId === "pro") chooseTab("promos"); }}>{ar ? "العروض" : "Promotions"}</button>
             {(planId !== "premium" && planId !== "pro") && <p className="phone-more-note">{ar ? "العروض تُفتح مع خطة أعلى." : "Promotions open on a higher plan."}</p>}
             <Link to="/sell" onClick={() => setMoreOpen(false)}>{ar ? "خطتي والترقية" : "My plan & upgrade"}</Link>
-            <button type="button" onClick={() => { const url = `${window.location.origin}/shop/${profileSlug}`; void navigator.clipboard?.writeText(url); setMoreOpen(false); }}>{ar ? "رابط الدكان" : "Shop link & QR code"}</button>
+            <button type="button" onClick={() => { const url = absoluteUrl(`/shop/${profileSlug}`); void navigator.clipboard?.writeText(url); setMoreOpen(false); }}>{ar ? "رابط الدكان" : "Shop link & QR code"}</button>
+            <label className="phone-more-note flex items-start gap-2">
+              <input type="checkbox" className="mt-1 size-5 shrink-0" checked={account?.googleShopping !== false} onChange={(event) => setStall({ googleShopping: event.target.checked })} />
+              <span>Show my items on Google Shopping · اعرض منتجاتي على جوجل للتسوق</span>
+            </label>
             <Link to="/rules" onClick={() => setMoreOpen(false)}>{ar ? "المساعدة والقواعد" : "Help & rules"}</Link>
             <button type="button" onClick={() => { setMoreOpen(false); setPhoneTab("shop"); setEditPane("about"); chooseTab("edit"); }}>{ar ? "إعدادات الحساب" : "Account settings"}</button>
             <button type="button" onClick={() => signOut()}>{ar ? "خروج" : "Log out"}</button>

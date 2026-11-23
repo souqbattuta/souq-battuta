@@ -5,11 +5,13 @@ import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { cn } from "@/lib/cn";
 import { OptImg } from "@/components/opt-img";
+import { keepLang } from "@/lib/site";
 
 export const Route = createFileRoute("/sign-in")({
   validateSearch: (s: Record<string, unknown>) => ({
     next: typeof s.next === "string" ? s.next : "/home",
     ...(s.role === "seller" ? { role: "seller" as const } : {}),
+    ...keepLang(s),
   }),
   search: { middlewares: [stripSearchParams({ next: "/home" })] },
   component: SignInPage,

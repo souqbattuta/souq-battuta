@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useSession } from "@/lib/session";
+import { usePageLang } from "@/lib/page-lang";
 import { buildSellerAlerts } from "@/lib/seller-alerts";
 import { copy } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -12,12 +13,23 @@ export function SiteHeader({
 }: {
   variant?: "app" | "landing";
 }) {
-  const lang = useSession((s) => s.lang);
+  const lang = usePageLang();
+  const router = useRouter();
   const user = useSession((s) => s.user);
   const t = copy[lang];
   const navigate = useNavigate();
   const signOut = useSession((s) => s.signOut);
   const setLang = useSession((s) => s.setLang);
+  function chooseLang(next: "en" | "ar") {
+    setLang(next);
+    const current = router.state.location.search as Record<string, unknown>;
+    void router.navigate({
+      to: router.state.location.pathname,
+      search: { ...current, lang: next } as never,
+      replace: true,
+      resetScroll: false,
+    });
+  }
   const listings = useSession((s) => s.listings);
   const accounts = useSession((s) => s.accounts);
   const waTaps = useSession((s) => s.waTaps);
@@ -67,7 +79,7 @@ export function SiteHeader({
             </span>
           </Link>
           <div className="phone-slim-side">
-            <button type="button" onClick={() => setLang(lang === "ar" ? "en" : "ar")}>
+            <button type="button" onClick={() => chooseLang(lang === "ar" ? "en" : "ar")}>
               {lang === "ar" ? "English" : "العربية"}
             </button>
             {user ? (
@@ -269,11 +281,11 @@ export function SiteHeader({
           )}
         </div>
         <div className="banner-lang" role="group" aria-label="Language">
-          <button type="button" aria-pressed={lang === "en"} onClick={() => setLang("en")}>
+          <button type="button" aria-pressed={lang === "en"} onClick={() => chooseLang("en")}>
             English
           </button>
           <span aria-hidden="true">/</span>
-          <button type="button" className="font-arabic" aria-pressed={lang === "ar"} onClick={() => setLang("ar")}>
+          <button type="button" className="font-arabic" aria-pressed={lang === "ar"} onClick={() => chooseLang("ar")}>
             العربية
           </button>
         </div>
@@ -343,7 +355,7 @@ export function SiteHeader({
 }
 
 export function SiteFooter() {
-  const lang = useSession((s) => s.lang);
+  const lang = usePageLang();
   const ar = lang === "ar";
   const t = copy[lang];
   return (
@@ -379,7 +391,7 @@ export function SiteFooter() {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const lang = useSession((s) => s.lang);
+  const lang = usePageLang();
   const path = useRouterState({ select: (state) => state.location.pathname });
   const showBack = path !== "/" && path !== "/home";
   const sellerDesk = path === "/seller" || path.startsWith("/seller/");

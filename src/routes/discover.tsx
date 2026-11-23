@@ -6,10 +6,12 @@ import { copy } from "@/lib/i18n";
 import { Shell } from "@/components/site-header";
 import { PlanBadge } from "@/components/plan-stamp";
 import { OptImg } from "@/components/opt-img";
+import { keepLang } from "@/lib/site";
 
 export const Route = createFileRoute("/discover")({
   validateSearch: (s: Record<string, unknown>) => ({
     q: typeof s.q === "string" ? s.q : "",
+    ...keepLang(s),
   }),
   search: { middlewares: [stripSearchParams({ q: "" })] },
   component: DiscoverPage,
