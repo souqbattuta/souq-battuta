@@ -11,6 +11,7 @@ import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
 import { assignShopSlug, renameShopSlug } from "@/lib/shop-slug";
 import { slugHasPhone } from "@/lib/site";
 import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
+import { deleteConfirmedAccount, releaseOwnedMedia } from "@/lib/account-delete";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -492,7 +493,7 @@ export const verifySouqOtp = createServerFn({ method: "POST" })
     `;
     const otp = rows[0];
     if (!testCode) {
-      if (!otp || otp.purpose === "reset") return { ok: false as const, error: "otp" as const };
+      if (!otp || otp.purpose === "reset" || otp.purpose === "delete") return { ok: false as const, error: "otp" as const };
       if (new Date(otp.expires_at).getTime() <= Date.now()) {
         await sql`delete from souq_otp where phone = ${data.phone}`;
         return { ok: false as const, error: "expired" as const };
@@ -2129,5 +2130,89 @@ export const getPublicShop = createServerFn({ method: "GET" })
     const next = await lookupSlugRedirect(sql, data.slug);
     if (!next) return page;
     return { ...page, redirect: next };
+  });
+
+export const requestAccountDeleteCode = createServerFn({ method: "POST" }).handler(async () => {
+  const s = await kit();
+  const sql = await db();
+  const phone = await sessionPhone(sql);
+  if (!phone) return { ok: false as const, error: "auth" as const };
+  const account = await loadAccount(sql, phone);
+  if (!account) return { ok: false as const, error: "auth" as const };
+  const whatsapp = shopWa(account.data?.whatsappPhone);
+  if (!whatsapp) return { ok: true as const, needed: false as const };
+  const ip = clientIp(s);
+  const recent = await sql<{ sent_at: string }>`select sent_at from souq_otp where phone = ${whatsapp}`;
+  if (recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 60_000) {
+    return { ok: false as const, error: "cooldown" as const };
+  }
+  if (!(await hitRate(sql, `ip:otp:${ip}`, 8, 3600))) return { ok: false as const, error: "rate" as const };
+  if (!(await hitRate(sql, `phone:otp:${whatsapp}`, 5, 3600))) return { ok: false as const, error: "rate" as const };
+  if (!(await allowDailyCodeSend((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), ip, whatsapp))) {
+    return { ok: false as const, error: "rate" as const };
+  }
+  const code = s.randomInt(0, 1_000_000).toString().padStart(6, "0");
+  const salt = s.randomBytes(16).toString("hex");
+  const { sendWhatsAppCode } = await import("@/lib/whatsapp-otp");
+  const sent = await sendWhatsAppCode(whatsapp, code);
+  if (!sent.ok && !(sent.error === "unconfigured" && allowTestOtp())) {
+    return { ok: false as const, error: sent.error === "unconfigured" ? "unconfigured" as const : "send" as const };
+  }
+  if (sent.ok || allowTestOtp()) {
+    await sql`
+      insert into souq_otp (phone, code_hash, salt, expires_at, attempts, sent_at, purpose)
+      values (${whatsapp}, ${hashOtp(s, code, salt)}, ${salt}, now() + (${OTP_SECONDS} * interval '1 second'), 0, now(), 'delete')
+      on conflict (phone) do update set
+        code_hash = excluded.code_hash,
+        salt = excluded.salt,
+        expires_at = excluded.expires_at,
+        attempts = 0,
+        sent_at = now(),
+        purpose = 'delete'
+    `;
+  }
+  return { ok: true as const, needed: true as const };
+});
+
+export const deleteSouqAccount = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      username: z.string().trim().min(1).max(40),
+      password: z.string().min(1).max(80),
+      code: z.string().trim().max(8).optional(),
+    }).strict(),
+  )
+  .handler(async ({ data }) => {
+    const s = await kit();
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const ip = clientIp(s);
+    if (!(await hitRate(sql, `ip:delete:${ip}`, 30, 3600))) return { ok: false as const, error: "rate" as const };
+    if (!(await hitRate(sql, `phone:delete:${phone}`, 10, 3600))) return { ok: false as const, error: "rate" as const };
+    const account = await loadAccount(sql, phone);
+    if (!account) return { ok: false as const, error: "auth" as const };
+    const whatsapp = shopWa(account.data?.whatsappPhone);
+    const result = await deleteConfirmedAccount(sql, {
+      phone,
+      username: data.username,
+      password: data.password,
+      code: data.code,
+      whatsapp,
+      allowTestCode: allowTestOtp(),
+      passwordMatches: (password, hash) => s.compare(password, hash),
+      codeMatches: (code, salt, digest) => otpMatches(s, code, salt, digest),
+      transact: (fn) => tx(fn),
+    });
+    if (!result.ok) return { ok: false as const, error: result.error === "missing" ? "auth" as const : result.error };
+    try {
+      await queueOwnedMedia(phone, result.urls);
+      await releaseOwnedMedia(sql, result.urls);
+      await sweepHelloStorage();
+    } catch {
+      /* the account row is already gone; still drop the cookie */
+    }
+    clearSessionCookie(s);
+    return { ok: true as const };
   });
 

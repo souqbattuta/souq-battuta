@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { SHOPS, type Product, type Shop } from "@/lib/data";
+import { SHOPS, SHOP_WHATSAPP, type Product, type Shop } from "@/lib/data";
 import { directoryShops, isValidUsername, usernameTaken, useSession, type BookmarkList, type BuyerAccount, type FollowedList, type SavedAddress } from "@/lib/session";
 import { isReservedBrand } from "@/lib/reserved-brand";
 import { copy, place } from "@/lib/i18n";
+import { deleteSouqAccount, requestAccountDeleteCode } from "@/lib/souq-sync";
 import { DEFAULT_ALGO_ORDER, WORD_CAP, algoOrder, journeyHint, type AlgoLever } from "@/lib/shelves";
 import { Shell } from "@/components/site-header";
 import { OptImg } from "@/components/opt-img";
@@ -796,8 +797,151 @@ function AccountPage() {
             {t.signOut}
           </button>
         </div>
+        <DeleteAccount />
       </main>
     </Shell>
+  );
+}
+
+function shopCodeNeeded(raw: unknown) {
+  let text = String(raw ?? "").trim().replace(/[\s().-]/g, "");
+  if (text.startsWith("00")) text = `+${text.slice(2)}`;
+  const digits = text.startsWith("+") ? text.slice(1).replace(/\D/g, "") : text.replace(/\D/g, "");
+  let phone = "";
+  if (/^9620?7\d{8}$/.test(digits)) phone = `+962${digits.slice(-9)}`;
+  else if (/^07\d{8}$/.test(digits)) phone = `+962${digits.slice(1)}`;
+  else if (/^7\d{8}$/.test(digits)) phone = `+962${digits}`;
+  else if (digits) phone = `+${digits}`;
+  return SHOP_WHATSAPP.test(phone);
+}
+
+function DeleteAccount() {
+  const lang = useSession((s) => s.lang);
+  const t = copy[lang];
+  const user = useSession((s) => s.user);
+  const signOut = useSession((s) => s.signOut);
+  const navigate = useNavigate();
+  const needsCode = shopCodeNeeded(user?.whatsappPhone);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  if (!user) return null;
+
+  function note(kind: string) {
+    if (kind === "password") return t.wrongPass;
+    if (kind === "username") return t.deleteUserMismatch;
+    if (kind === "expired") return t.otpExpired;
+    if (kind === "attempts") return t.otpAttempts;
+    if (kind === "rate") return t.lockedOut;
+    if (kind === "cooldown") return t.otpWait.replace("{s}", "60");
+    if (kind === "unconfigured") return t.otpUnconfigured;
+    if (kind === "send") return t.otpSend;
+    if (kind === "otp") return t.badOtp;
+    return t.badOtp;
+  }
+
+  async function sendCode() {
+    setError("");
+    setSending(true);
+    try {
+      const res = await requestAccountDeleteCode();
+      if (!res.ok) setError(note(res.error));
+    } catch {
+      setError(t.otpSend);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function onDelete(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
+    if (needsCode && !/^\d{6}$/.test(code)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await deleteSouqAccount({
+        data: { username: username.trim(), password, ...(needsCode ? { code } : {}) },
+      });
+      if (!res.ok) {
+        setError(note(res.error));
+        setBusy(false);
+        return;
+      }
+      try {
+        sessionStorage.setItem("souq-account-deleted", "1");
+      } catch {
+        /* the home page still loads */
+      }
+      signOut();
+      void navigate({ to: "/home" });
+    } catch {
+      setError(t.otpSend);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="account-delete" dir={lang === "ar" ? "rtl" : "ltr"} lang={lang}>
+      <h2>{t.deleteAccount}</h2>
+      <p>{t.deleteAccountBody}</p>
+      <form onSubmit={onDelete}>
+        <label>
+          <span className="mb-1 block font-semibold">{t.username}</span>
+          <input
+            name="confirm-username"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="h-12 w-full rounded-md border border-line bg-white px-3"
+            required
+          />
+        </label>
+        <label>
+          <span className="mb-1 block font-semibold">{t.password}</span>
+          <input
+            name="confirm-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="h-12 w-full rounded-md border border-line bg-white px-3"
+            required
+          />
+        </label>
+        {needsCode && (
+          <label>
+            <span className="mb-1 block font-semibold">{t.otpTitle}</span>
+            <input
+              name="confirm-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              className="h-12 w-full rounded-md border border-line bg-white px-3"
+              required
+            />
+          </label>
+        )}
+        {needsCode && (
+          <button type="button" className="account-delete-send rounded-md px-3 text-sm font-semibold" disabled={sending || busy} onClick={() => void sendCode()}>
+            {t.otpResend}
+          </button>
+        )}
+        {error && <p className="text-sm text-red">{error}</p>}
+        <button
+          type="submit"
+          className="account-delete-go rounded-md px-3"
+          disabled={busy || !username.trim() || !password || (needsCode && !/^\d{6}$/.test(code))}
+        >
+          {t.deleteAccountGo}
+        </button>
+      </form>
+    </section>
   );
 }
 

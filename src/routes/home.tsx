@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { directoryShops, useSession } from "@/lib/session";
 import { newPlacesShelf, rankForYou, shopMuted, useTieSeed } from "@/lib/shelves";
@@ -49,6 +49,17 @@ function HomePage() {
   const user = useSession((s) => s.user);
   const t = copy[lang];
   const ar = lang === "ar";
+  const [accountDeleted, setAccountDeleted] = useState(false);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("souq-account-deleted") === "1") {
+        sessionStorage.removeItem("souq-account-deleted");
+        setAccountDeleted(true);
+      }
+    } catch {
+      /* private mode can block storage */
+    }
+  }, []);
   const accounts = useSession((s) => s.accounts);
   const serverShops = useSession((s) => s.serverShops);
   const ensureDirectory = useSession((s) => s.ensureDirectory);
@@ -88,6 +99,11 @@ function HomePage() {
     <Shell>
       <main className="home">
         <h1 className="sr-only">{ar ? "سوق بطوطة" : "Souq Battuta"}</h1>
+        {accountDeleted && (
+          <p className="account-deleted-note" role="status" dir={ar ? "rtl" : "ltr"} lang={ar ? "ar" : "en"}>
+            {t.accountDeleted}
+          </p>
+        )}
         <section className="home-hero home-story-hero" aria-label={ar ? "مين إحنا" : "Who we are"}>
           <HeroFilm />
         </section>
