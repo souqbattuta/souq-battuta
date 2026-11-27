@@ -1,20 +1,26 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
-import { LEGACY_HOST, SITE_URL, slugHasPhone } from "@/lib/site";
+import { currentSiteUrl, legacyRedirect, pageRobots, requestHostName, slugHasPhone, withSiteOrigin } from "@/lib/site";
 
-function hostName(request: Request) {
-  const raw = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
-  return raw.split(",")[0]?.trim().split(":")[0]?.toLowerCase() ?? "";
+type SiteBox = { run<T>(origin: string, fn: () => T): T; get(): string };
+
+function siteGlobal() {
+  return globalThis as typeof globalThis & { __souqSiteOrigin?: SiteBox };
 }
 
-function samePath(pathname: string) {
-  const short = pathname.match(/^\/s\/([^/]+)\/?$/);
-  if (short) return `/shop/${short[1]}`;
-  return pathname;
+async function installOrigin() {
+  const holder = siteGlobal();
+  if (holder.__souqSiteOrigin) return;
+  const { AsyncLocalStorage } = await import("node:async_hooks");
+  const als = new AsyncLocalStorage<string>();
+  holder.__souqSiteOrigin = {
+    run: (origin, fn) => als.run(origin, fn),
+    get: () => als.getStore() || "",
+  };
 }
 
 async function movedShopUrl(pathname: string, search: string, origin: string) {
   const match = pathname.match(/^\/(?:shop|s)\/([^/]+)(\/.*)?$/);
-  if (!match) return "";
+  if (!match || !origin) return "";
   let slug = match[1];
   try {
     slug = decodeURIComponent(slug);
@@ -34,34 +40,28 @@ async function movedShopUrl(pathname: string, search: string, origin: string) {
 }
 
 const seoHost = createMiddleware({ type: "request" }).server(async ({ request, next, pathname }) => {
+  await installOrigin();
   const url = new URL(request.url);
-  const host = hostName(request);
-  if ((request.method === "GET" || request.method === "HEAD")) {
-    const moved = await movedShopUrl(pathname || url.pathname, url.search, host === LEGACY_HOST ? SITE_URL : url.origin);
+  const path = pathname || url.pathname;
+  const host = requestHostName(request);
+  const origin = currentSiteUrl(request);
+  if (request.method === "GET" || request.method === "HEAD") {
+    const moved = await movedShopUrl(path, url.search, origin);
     if (moved) return new Response(null, { status: 301, headers: { location: moved } });
   }
-  if (host === LEGACY_HOST) {
-    const dest = `${SITE_URL}${samePath(pathname || url.pathname)}${url.search}`;
-    try {
-      return new Response(null, { status: 301, headers: { location: dest } });
-    } catch {
-      const result = await next();
-      result.response?.headers.set("X-Robots-Tag", "noindex, nofollow");
-      result.response?.headers.set("Link", `<${dest}>; rel="canonical"`);
-      return result;
-    }
-  }
+  const jump = legacyRedirect(host, path, url.search);
+  if (jump) return new Response(null, { status: 301, headers: { location: jump } });
 
-  if ((request.method === "GET" || request.method === "HEAD") && pathname.startsWith("/@")) {
-    const handle = decodeURIComponent(pathname.slice(2).split("/")[0] || "");
-    if (handle && !/\d{7,}/.test(handle)) {
+  if ((request.method === "GET" || request.method === "HEAD") && path.startsWith("/@")) {
+    const handle = decodeURIComponent(path.slice(2).split("/")[0] || "");
+    if (handle && !/\d{7,}/.test(handle) && origin) {
       try {
         const { slugForHandle } = await import("@/lib/public-catalog");
         const slug = await slugForHandle(handle);
         if (slug) {
           return new Response(null, {
             status: 301,
-            headers: { location: `${SITE_URL}/shop/${encodeURIComponent(slug)}${url.search}` },
+            headers: { location: `${origin}/shop/${encodeURIComponent(slug)}${url.search}` },
           });
         }
       } catch {
@@ -70,7 +70,11 @@ const seoHost = createMiddleware({ type: "request" }).server(async ({ request, n
     }
   }
 
-  return next();
+  return withSiteOrigin(origin, async () => {
+    const result = await next();
+    result.response?.headers.set("X-Robots-Tag", pageRobots(path));
+    return result;
+  });
 });
 
 export const startInstance = createStart(() => ({

@@ -1,5 +1,7 @@
 import { isSellerCategory, normalizePlan, type CategoryId, type Product, type Review, type Shop } from "@/lib/data";
-import { hasFixedPrice, publicText, shopPath, SITE_URL, slugHasPhone, xmlEscape, PUBLIC_CATEGORIES } from "@/lib/site";
+import { currentSiteUrl, hasFixedPrice, publicText, renderRobots, shopPath, sitemapLocs, slugHasPhone, xmlEscape } from "@/lib/site";
+
+export { renderRobots, sitemapLocs };
 
 type Sql = {
   query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
@@ -238,13 +240,6 @@ type IndexItem = {
   shopping: string | null;
 };
 
-function stamp(value: string | Date | null | undefined) {
-  if (!value) return "";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
-}
-
 async function indexRows() {
   const sql = await sqlClient();
   const now = Date.now();
@@ -280,18 +275,6 @@ async function indexRows() {
   };
 }
 
-const STATIC_PATHS = ["/", "/home", "/join", "/sell", "/discover", "/hello", "/privacy"];
-
-function sitemapUrls(shops: IndexShop[], items: IndexItem[]) {
-  const urls: { loc: string; lastmod?: string }[] = [
-    ...STATIC_PATHS.map((path) => ({ loc: `${SITE_URL}${path === "/" ? "/" : path}` })),
-    ...PUBLIC_CATEGORIES.map((category) => ({ loc: `${SITE_URL}/category/${category.id}` })),
-    ...shops.map((shop) => ({ loc: `${SITE_URL}${shopPath(shop.slug)}`, lastmod: stamp(shop.updated_at) })),
-    ...items.map((item) => ({ loc: `${SITE_URL}${shopPath(item.shop_slug, item.id)}`, lastmod: stamp(item.created_at) })),
-  ];
-  return urls;
-}
-
 function urlset(urls: { loc: string; lastmod?: string }[]) {
   const body = urls
     .map((url) => `  <url><loc>${xmlEscape(url.loc)}</loc>${url.lastmod ? `<lastmod>${url.lastmod}</lastmod>` : ""}</url>`)
@@ -300,8 +283,9 @@ function urlset(urls: { loc: string; lastmod?: string }[]) {
 }
 
 export async function renderSitemap(request: Request) {
+  const base = currentSiteUrl(request);
   const { shops, items } = await indexRows();
-  const urls = sitemapUrls(shops, items);
+  const urls = sitemapLocs(base, shops, items);
   const partSize = 50000;
   const url = new URL(request.url);
   const part = Number(url.searchParams.get("part") || "0");
@@ -310,13 +294,13 @@ export async function renderSitemap(request: Request) {
     if (part >= 1 && part <= parts) {
       return xml(urlset(urls.slice((part - 1) * partSize, part * partSize)));
     }
-    const index = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${Array.from({ length: parts }, (_, i) => `  <sitemap><loc>${xmlEscape(`${SITE_URL}/sitemap.xml?part=${i + 1}`)}</loc></sitemap>`).join("\n")}\n</sitemapindex>\n`;
+    const index = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${Array.from({ length: parts }, (_, i) => `  <sitemap><loc>${xmlEscape(`${base}/sitemap.xml?part=${i + 1}`)}</loc></sitemap>`).join("\n")}\n</sitemapindex>\n`;
     return xml(index);
   }
   return xml(urlset(urls));
 }
 
-function feedItem(row: IndexItem) {
+function feedItem(row: IndexItem, base: string) {
   const product = toProduct(row);
   if (!hasFixedPrice(product)) return "";
   const image = product.images[0];
@@ -326,14 +310,14 @@ function feedItem(row: IndexItem) {
   const out = body.availability === "out_of_stock";
   const title = publicText(product.name) || product.name;
   const description = publicText(product.desc || product.nameAr || title) || title;
-  const link = `${SITE_URL}${shopPath(row.shop_slug, row.id)}`;
+  const link = `${base}${shopPath(row.shop_slug, row.id)}`;
   const brand = publicText(row.shop_name) || row.shop_name;
   return `    <item>
       <g:id>${xmlEscape(row.id)}</g:id>
       <title>${xmlEscape(title)}</title>
       <description>${xmlEscape(description)}</description>
       <link>${xmlEscape(link)}</link>
-      <g:image_link>${xmlEscape(image.startsWith("http") ? image : `${SITE_URL}${image.startsWith("/") ? image : `/${image}`}`)}</g:image_link>
+      <g:image_link>${xmlEscape(image.startsWith("http") ? image : `${base}${image.startsWith("/") ? image : `/${image}`}`)}</g:image_link>
       <g:price>${product.price.toFixed(2)} JOD</g:price>
       <g:availability>${out ? "out_of_stock" : "in_stock"}</g:availability>
       <g:brand>${xmlEscape(brand)}</g:brand>
@@ -341,49 +325,21 @@ function feedItem(row: IndexItem) {
     </item>`;
 }
 
-export async function renderMerchantFeed() {
+export async function renderMerchantFeed(request?: Request) {
+  const base = currentSiteUrl(request);
   const { items } = await indexRows();
-  const body = items.map(feedItem).filter(Boolean).join("\n");
+  const body = items.map((row) => feedItem(row, base)).filter(Boolean).join("\n");
   const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
   <channel>
     <title>Souq Battuta</title>
-    <link>${SITE_URL}</link>
+    <link>${base}</link>
     <description>Amman first. Sellers keep the customer.</description>
 ${body}
   </channel>
 </rss>
 `;
   return xml(xmlBody);
-}
-
-export function renderRobots() {
-  const lines = [
-    "User-agent: *",
-    "Allow: /",
-    "",
-    "Disallow: /seller",
-    "Disallow: /desk",
-    "Disallow: /account",
-    "Disallow: /admin",
-    "Disallow: /inbox",
-    "Disallow: /checklist",
-    "Disallow: /otp",
-    "Disallow: /sign-in",
-    "Disallow: /forgot",
-    "Disallow: /join/seller/plan",
-    "Disallow: /welcome",
-    "Disallow: /api/",
-    "",
-    `Sitemap: ${SITE_URL}/sitemap.xml`,
-    "",
-  ];
-  return new Response(lines.join("\n"), {
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "public, max-age=300",
-    },
-  });
 }
 
 function xml(body: string) {

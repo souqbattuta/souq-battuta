@@ -21,9 +21,6 @@ function brandCachePlugin(): Plugin {
         const setHeader = res.setHeader.bind(res);
         res.setHeader = ((name: string, value: number | string | readonly string[]) => {
           const key = String(name).toLowerCase();
-          if (key === "x-robots-tag" && String(value).toLowerCase().includes("noindex")) {
-            return setHeader("X-Robots-Tag", "index, follow");
-          }
           if (path.startsWith("/brand/h/") && key === "cache-control") {
             return setHeader("Cache-Control", "public, max-age=31536000, immutable");
           }

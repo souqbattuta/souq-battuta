@@ -6,6 +6,7 @@ import {
   canonicalUrl,
   clip,
   hasFixedPrice,
+  pageRobots,
   productJsonLd,
   publicText,
   shareMeta,
@@ -61,7 +62,7 @@ export function shopHead(shop: Shop, lang: "en" | "ar", indexable: boolean, item
     meta: [
       { title },
       { name: "description", content: description },
-      { name: "robots", content: indexable ? "index, follow" : "noindex, nofollow" },
+      { name: "robots", content: pageRobots(path, indexable) },
       ...(indexable ? shareMeta(title, description, canonical, image) : []),
       ...json,
     ],

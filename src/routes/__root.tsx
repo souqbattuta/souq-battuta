@@ -13,11 +13,13 @@ import {
   TAGLINE_AR,
   TAGLINE_EN,
   canonicalUrl,
+  currentSiteUrl,
   explicitLang,
   homeJsonLd,
   isPrivatePath,
   languageLinks,
   pageLangOf,
+  pageRobots,
   shareMeta,
 } from "@/lib/site";
 import appCss from "../styles.css?url";
@@ -117,7 +119,8 @@ export const Route = createRootRoute({
         ...(info ? [{ title: info.title }, { name: "description", content: info.description }] : []),
         { name: "theme-color", content: "#1C305C" },
         { name: "application-name", content: APP_NAME },
-        { name: "robots", content: priv ? "noindex, nofollow" : "index, follow" },
+        { name: "robots", content: pageRobots(path) },
+        { name: "souq-site", content: currentSiteUrl() },
         ...(info && !priv ? shareMeta(info.title, info.description, canonical, DUCK_LOGO) : []),
         ...(home && !priv ? [{ "script:ld+json": homeJsonLd() } as any] : []),
       ],

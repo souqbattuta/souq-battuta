@@ -1,16 +1,92 @@
-/** One public address. Override with SITE_URL on the server when needed. */
-const DEFAULT_SITE = "https://souqbattuta.com";
+/** One public address. Set SITE_URL to https://souqbattuta.com only after that host serves the site. */
+const SITE_BOX = "__souqSiteOrigin";
 
-function fromEnv() {
-  const raw = typeof process !== "undefined" ? process.env.SITE_URL : undefined;
+type SiteBox = {
+  run<T>(origin: string, fn: () => T): T;
+  get(): string;
+};
+
+function siteBox() {
+  return (globalThis as typeof globalThis & { [SITE_BOX]?: SiteBox })[SITE_BOX];
+}
+
+export function withSiteOrigin<T>(origin: string, fn: () => T): T {
+  const box = siteBox();
+  if (!box || !origin) return fn();
+  return box.run(origin, fn);
+}
+
+/** A configured https host, or empty when the env var is missing or not a host. */
+export function configuredSiteUrl(env: NodeJS.ProcessEnv = process.env) {
+  const raw = typeof process !== "undefined" ? env.SITE_URL : undefined;
   const text = String(raw ?? "").trim().replace(/\/$/, "");
   return /^https:\/\/[a-z0-9.-]+$/i.test(text) ? text : "";
 }
 
-export const SITE_URL = fromEnv() || DEFAULT_SITE;
-
-/** The preview host Google must leave. Every path 301s to SITE_URL. */
+/** The preview host. It 301s only after SITE_URL is a different host. */
 export const LEGACY_HOST = "wave-sage-hill-pepper.grok.me";
+
+export function requestHostName(request: { headers: { get(name: string): string | null } }) {
+  const raw = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+  return raw.split(",")[0]?.trim().split(":")[0]?.toLowerCase() ?? "";
+}
+
+export function originFromRequest(request: { url: string; headers: { get(name: string): string | null } }) {
+  const forwarded = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0]?.trim() || "";
+  const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0]?.trim();
+  try {
+    const url = new URL(request.url);
+    const host = forwarded || url.host;
+    if (!host) return "";
+    const scheme = proto || url.protocol.replace(":", "") || "https";
+    return `${scheme}://${host}`.replace(/\/$/, "");
+  } catch {
+    return forwarded ? `https://${forwarded}` : "";
+  }
+}
+
+function markedOrigin() {
+  if (typeof document === "undefined") return "";
+  const content = document.querySelector('meta[name="souq-site"]')?.getAttribute("content")?.trim().replace(/\/$/, "") || "";
+  return /^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(content) ? content : "";
+}
+
+/** Configured SITE_URL, otherwise the request that is rendering this page. */
+export function currentSiteUrl(request?: { url: string; headers: { get(name: string): string | null } }) {
+  const configured = configuredSiteUrl();
+  if (configured) return configured;
+  if (request) {
+    const origin = originFromRequest(request);
+    if (origin) return origin;
+  }
+  const bound = siteBox()?.get() || "";
+  if (bound) return bound;
+  const marked = markedOrigin();
+  if (marked) return marked;
+  if (typeof window !== "undefined" && window.location?.origin) return window.location.origin.replace(/\/$/, "");
+  return "";
+}
+
+export function samePath(pathname: string) {
+  const short = (pathname || "/").match(/^\/s\/([^/]+)\/?$/);
+  if (short) return `/shop/${short[1]}`;
+  return pathname || "/";
+}
+
+/** 301 the preview host only when SITE_URL is set and is a different host. */
+export function legacyRedirect(host: string, pathname: string, search = "") {
+  const configured = configuredSiteUrl();
+  if (!configured) return "";
+  let targetHost = "";
+  try {
+    targetHost = new URL(configured).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+  const here = host.toLowerCase();
+  if (!here || here === targetHost || here !== LEGACY_HOST) return "";
+  return `${configured}${samePath(pathname)}${search || ""}`;
+}
 
 export const TAGLINE_EN = "Amman first. Sellers keep the customer.";
 export const TAGLINE_AR = "عمّان أولاً. البائع يحتفظ بالزبون.";
@@ -57,6 +133,12 @@ export function isPrivatePath(path: string) {
   return false;
 }
 
+export function pageRobots(path: string, indexable = true) {
+  const clean = path.split("?")[0] || "/";
+  if (!indexable || isPrivatePath(clean) || !configuredSiteUrl()) return "noindex, nofollow";
+  return "index, follow";
+}
+
 /** A phone-digit slug stays out of the sitemap and out of Google. */
 export function slugHasPhone(slug: string) {
   return /^stall-\d+$/i.test(slug) || /\d{7,}/.test(slug);
@@ -65,7 +147,8 @@ export function slugHasPhone(slug: string) {
 export function absoluteUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${SITE_URL}${p}`;
+  const base = currentSiteUrl();
+  return base ? `${base}${p}` : p;
 }
 
 export function shopPath(slug: string, itemId?: string) {
@@ -144,7 +227,7 @@ export function homeJsonLd() {
         "@type": "Organization",
         name: "Souq Battuta",
         alternateName: ["Sooq Battuta", "سوق بطوطة"],
-        url: SITE_URL,
+        url: currentSiteUrl(),
         logo: absoluteUrl(DUCK_LOGO),
         sameAs: [...SOCIAL_URLS],
       },
@@ -152,7 +235,7 @@ export function homeJsonLd() {
         "@type": "WebSite",
         name: "Souq Battuta",
         alternateName: ["Sooq Battuta", "سوق بطوطة"],
-        url: SITE_URL,
+        url: currentSiteUrl(),
       },
     ],
   };
@@ -203,4 +286,61 @@ export function xmlEscape(value: string) {
     .replace(/>/g, "\u0026gt;")
     .replace(/"/g, "\u0026quot;")
     .replace(/'/g, "\u0026apos;");
+}
+
+function stampDay(value: string | Date | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+const SITEMAP_PATHS = ["/", "/home", "/join", "/sell", "/discover", "/hello", "/privacy"];
+
+/** Public sitemap URLs. Phone-digit slugs stay out. */
+export function sitemapLocs(
+  base: string,
+  shops: { slug: string; updated_at?: string | Date | null }[],
+  items: { id: string; shop_slug: string; created_at?: string | Date | null }[],
+) {
+  const liveShops = shops.filter((shop) => !slugHasPhone(shop.slug));
+  const liveItems = items.filter((item) => !slugHasPhone(item.shop_slug));
+  return [
+    ...SITEMAP_PATHS.map((path) => ({ loc: `${base}${path === "/" ? "/" : path}` })),
+    ...PUBLIC_CATEGORIES.map((category) => ({ loc: `${base}/category/${category.id}` })),
+    ...liveShops.map((shop) => ({ loc: `${base}${shopPath(shop.slug)}`, lastmod: stampDay(shop.updated_at) })),
+    ...liveItems.map((item) => ({ loc: `${base}${shopPath(item.shop_slug, item.id)}`, lastmod: stampDay(item.created_at) })),
+  ];
+}
+
+/** robots.txt. The sitemap line uses the same host as the page. */
+export function renderRobots(request?: { url: string; headers: { get(name: string): string | null } }) {
+  const base = currentSiteUrl(request);
+  const lines = [
+    "User-agent: *",
+    "Allow: /",
+    "",
+    "Disallow: /seller",
+    "Disallow: /desk",
+    "Disallow: /account",
+    "Disallow: /admin",
+    "Disallow: /inbox",
+    "Disallow: /checklist",
+    "Disallow: /otp",
+    "Disallow: /sign-in",
+    "Disallow: /forgot",
+    "Disallow: /join/seller/plan",
+    "Disallow: /welcome",
+    "Disallow: /api/",
+    "Disallow: /buyer",
+    "",
+    `Sitemap: ${base}/sitemap.xml`,
+    "",
+  ];
+  return new Response(lines.join("\n"), {
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "public, max-age=300",
+    },
+  });
 }
