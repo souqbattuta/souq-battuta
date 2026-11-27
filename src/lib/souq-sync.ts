@@ -9,7 +9,8 @@ import { queueOwnedMedia, sweepHelloStorage } from "@/lib/hello-cleanup";
 import { effectivePlan } from "@/lib/hello-archive";
 import { isReservedBrand, usernameKey } from "@/lib/reserved-brand";
 import { assignShopSlug, renameShopSlug } from "@/lib/shop-slug";
-import { slugHasPhone } from "@/lib/site";
+import { decideLogin } from "@/lib/login-guard";
+import { slugHasPhone, souqWriteAllowed } from "@/lib/site";
 import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
 import { deleteConfirmedAccount, releaseOwnedMedia } from "@/lib/account-delete";
 import { buyerReplyHref, readShopOrders, replyLinkForShop, sellerShopSlug } from "@/lib/shop-orders";
@@ -116,6 +117,7 @@ type Kit = {
   setCookie: typeof import("@tanstack/react-start/server").setCookie;
   deleteCookie: typeof import("@tanstack/react-start/server").deleteCookie;
   getCookie: typeof import("@tanstack/react-start/server").getCookie;
+  getRequest: typeof import("@tanstack/react-start/server").getRequest;
   getRequestIP: typeof import("@tanstack/react-start/server").getRequestIP;
 };
 
@@ -135,6 +137,7 @@ async function kit(): Promise<Kit> {
     setCookie: http.setCookie,
     deleteCookie: http.deleteCookie,
     getCookie: http.getCookie,
+    getRequest: http.getRequest,
     getRequestIP: http.getRequestIP,
   };
 }
@@ -151,6 +154,16 @@ function otpMatches(s: Kit, code: string, salt: string, digest: string) {
   const next = Buffer.from(hashOtp(s, code, salt));
   const prev = Buffer.from(digest);
   return next.length === prev.length && s.timingSafeEqual(next, prev);
+}
+
+function crossSiteWrite(s: Kit) {
+  try {
+    const request = s.getRequest();
+    if (!request || request.method !== "POST") return false;
+    return !souqWriteAllowed(request);
+  } catch {
+    return false;
+  }
 }
 
 function clientIp(s: Kit) {
@@ -199,6 +212,7 @@ async function hitRate(sql: Awaited<ReturnType<typeof db>>, bucket: string, limi
 
 async function sessionPhone(sql: Awaited<ReturnType<typeof db>>) {
   const s = await kit();
+  if (crossSiteWrite(s)) return null;
   const token = s.getCookie(COOKIE);
   if (!token || token.length < 20) return null;
   const rows = await sql<{ phone: string }>`
@@ -695,28 +709,26 @@ export const claimSouq = createServerFn({ method: "POST" })
     const ip = clientIp(s);
     if (!(await hitRate(sql, `ip:login:${ip}`, 30, 900))) return { ok: false as const, error: "lockout" as const };
     const account = await loadAccount(sql, data.phone);
-    if (!account || !account.phone_verified) return { ok: false as const, error: "verify" as const };
-    if (account.locked_until && new Date(account.locked_until).getTime() > Date.now()) {
-      return { ok: false as const, error: "lockout" as const };
-    }
-    if (account.must_reset || !account.password_hash) return { ok: false as const, error: "reset" as const };
-    const match = await s.compare(data.password, account.password_hash);
-    if (!match) {
-      const fails = Number(account.failed_logins ?? 0) + 1;
-      if (fails >= LOCK_AFTER) {
+    const decided = await decideLogin({
+      account,
+      password: data.password,
+      asRole: data.asRole,
+      compare: (password, hash) => s.compare(password, hash),
+      lockAfter: LOCK_AFTER,
+    });
+    if (!decided.ok) {
+      if (decided.error === "lockout" && decided.lock && account) {
         await sql`
           update souq_accounts
-          set failed_logins = ${fails}, locked_until = now() + (${LOCK_MINUTES} * interval '1 minute')
+          set failed_logins = ${decided.fails ?? LOCK_AFTER}, locked_until = now() + (${LOCK_MINUTES} * interval '1 minute')
           where phone = ${data.phone}
         `;
-        return { ok: false as const, error: "lockout" as const };
+      } else if (decided.error === "credentials" && decided.fails && account) {
+        await sql`update souq_accounts set failed_logins = ${decided.fails} where phone = ${data.phone}`;
       }
-      await sql`update souq_accounts set failed_logins = ${fails} where phone = ${data.phone}`;
-      return { ok: false as const, error: "password" as const };
+      return { ok: false as const, error: decided.error };
     }
-    const role = account.role === "seller" ? "seller" : "buyer";
-    if (data.asRole === "seller" && role !== "seller") return { ok: false as const, error: "notSeller" as const };
-    if (data.asRole === "buyer" && role === "seller") return { ok: false as const, error: "notBuyer" as const };
+    if (!account) return { ok: false as const, error: "credentials" as const };
     await sql`update souq_accounts set failed_logins = 0, locked_until = null where phone = ${data.phone}`;
     await openSession(sql, s, data.phone);
     return { ok: true as const, account: publicProfile(data.phone, account.data ?? {}, account) };
@@ -724,6 +736,7 @@ export const claimSouq = createServerFn({ method: "POST" })
 
 export const signOutSouq = createServerFn({ method: "POST" }).handler(async () => {
   const s = await kit();
+  if (crossSiteWrite(s)) return { ok: false as const, error: "auth" as const };
   const sql = await db();
   const token = s.getCookie(COOKIE);
   if (token) await sql`delete from souq_tokens where token = ${sha256(s, token)}`;

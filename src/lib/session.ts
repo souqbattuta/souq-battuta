@@ -884,7 +884,7 @@ const useSession = create<any>()(
       signIn: async (phone: any, password: any, asRole = "buyer") => {
         const p = normalizePhone(phone);
         if (!isValidArabPhone(p)) return { ok: false, error: "phone" };
-        if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return { ok: false, error: "password" };
+        if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) return { ok: false, error: "short" };
         let remote;
         try {
           remote = await claimSouq({ data: { phone: p, password, asRole: asRole === "seller" ? "seller" : "buyer" } });

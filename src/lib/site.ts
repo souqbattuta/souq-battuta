@@ -31,6 +31,48 @@ export function requestHostName(request: { headers: { get(name: string): string 
   return raw.split(",")[0]?.trim().split(":")[0]?.toLowerCase() ?? "";
 }
 
+function hostFromHeader(value: string) {
+  const text = value.trim();
+  if (!text || text.toLowerCase() === "null") return "";
+  try {
+    return new URL(text).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Session writes. Missing Origin and Referer are allowed (non-browser).
+ * If either is present, its host must be this request, SITE_URL, or the preview host.
+ */
+export function souqWriteAllowed(request: { url: string; headers: { get(name: string): string | null } }) {
+  const origin = request.headers.get("origin")?.trim() || "";
+  const referer = (request.headers.get("referer") || request.headers.get("referrer") || "").trim();
+  const presented = origin || referer;
+  if (!presented) return true;
+  const theirs = hostFromHeader(presented);
+  if (!theirs) return false;
+  const allowed = new Set<string>();
+  const here = requestHostName(request);
+  if (here) allowed.add(here);
+  try {
+    const fromUrl = new URL(request.url).hostname.toLowerCase();
+    if (fromUrl) allowed.add(fromUrl);
+  } catch {
+    /* ignore a request url we cannot parse */
+  }
+  const configured = configuredSiteUrl();
+  if (configured) {
+    try {
+      allowed.add(new URL(configured).hostname.toLowerCase());
+    } catch {
+      /* configuredSiteUrl already rejected a bad host */
+    }
+  }
+  allowed.add(LEGACY_HOST);
+  return allowed.has(theirs);
+}
+
 export function originFromRequest(request: { url: string; headers: { get(name: string): string | null } }) {
   const forwarded = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0]?.trim() || "";
   const proto = (request.headers.get("x-forwarded-proto") || "").split(",")[0]?.trim();
@@ -122,6 +164,12 @@ const PRIVATE_EXACT = new Set([
   "/welcome",
 ]);
 
+export function pageRobots(path: string, indexable = true) {
+  const clean = path.split("?")[0] || "/";
+  if (!indexable || isPrivatePath(clean) || !configuredSiteUrl()) return "noindex, nofollow";
+  return "index, follow";
+}
+
 export function isPrivatePath(path: string) {
   const clean = path.split("?")[0] || "/";
   if (PRIVATE_EXACT.has(clean)) return true;
@@ -131,12 +179,6 @@ export function isPrivatePath(path: string) {
     if (clean.startsWith(prefix)) return true;
   }
   return false;
-}
-
-export function pageRobots(path: string, indexable = true) {
-  const clean = path.split("?")[0] || "/";
-  if (!indexable || isPrivatePath(clean) || !configuredSiteUrl()) return "noindex, nofollow";
-  return "index, follow";
 }
 
 /** A phone-digit slug stays out of the sitemap and out of Google. */

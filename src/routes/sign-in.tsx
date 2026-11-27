@@ -79,13 +79,9 @@ function SignInPage() {
               ? t.notBuyer
               : result.error === "lockout"
                 ? t.lockedOut
-                : result.error === "verify"
-                  ? t.needVerify
-                  : result.error === "password"
-                    ? t.wrongPass
-                    : result.error === "reset"
-                      ? t.mustReset
-                      : t.shortPass,
+                : result.error === "credentials" || result.error === "verify" || result.error === "password" || result.error === "reset"
+                  ? t.badSignIn
+                  : t.shortPass,
       );
       return;
     }
