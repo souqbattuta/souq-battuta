@@ -12,6 +12,7 @@ import { assignShopSlug, renameShopSlug } from "@/lib/shop-slug";
 import { slugHasPhone } from "@/lib/site";
 import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
 import { deleteConfirmedAccount, releaseOwnedMedia } from "@/lib/account-delete";
+import { buyerReplyHref, readShopOrders, replyLinkForShop, sellerShopSlug } from "@/lib/shop-orders";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -1278,6 +1279,34 @@ export const placeSouqOrder = createServerFn({ method: "POST" })
       on conflict (shop_slug) do update set order_count = souq_views.order_count + 1
     `;
     return { ok: true as const, id, waPhone };
+  });
+
+export const listShopOrders = createServerFn({ method: "GET" }).handler(async () => {
+  const sql = await db();
+  const phone = await sessionPhone(sql);
+  if (!phone) return { ok: false as const, error: "auth" as const };
+  const account = await loadAccount(sql, phone);
+  const slug = sellerShopSlug(account);
+  if (!slug) return { ok: false as const, error: "auth" as const };
+  const orders = await readShopOrders(sql, slug);
+  return { ok: true as const, orders };
+});
+
+export const orderReplyLink = createServerFn({ method: "POST" })
+  .validator(z.object({ orderId: z.string().trim().min(2).max(80) }).strict())
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    if (!phone) return { ok: false as const, error: "auth" as const };
+    const account = await loadAccount(sql, phone);
+    const slug = sellerShopSlug(account);
+    if (!slug) return { ok: false as const, error: "auth" as const };
+    const linked = await replyLinkForShop(sql, slug, data.orderId);
+    if (!linked.ok) return linked;
+    if (!(await hitRate(sql, `order-reply:${phone}`, 60, 3600))) return { ok: false as const, error: "rate" as const };
+    const href = buyerReplyHref(linked.href.replace("https://wa.me/", ""));
+    if (!href) return { ok: false as const, error: "missing" as const };
+    return { ok: true as const, href };
   });
 
 const JORDAN = { latMin: 29.18, latMax: 33.38, lngMin: 34.88, lngMax: 39.3 };

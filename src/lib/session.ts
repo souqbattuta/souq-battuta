@@ -1120,10 +1120,18 @@ const useSession = create<any>()(
         if (!clean || (get().dismissedSuggestions ?? []).includes(clean)) return;
         withBuyer(get, set, { dismissedSuggestions: [...get().dismissedSuggestions ?? [], clean] });
       },
-      placeOrder: (order: any) => {
-        const id = `o-${Date.now()}`;
+      placeOrder: async (order: any) => {
         const productName = clipOrderName(String(order.productName ?? ""));
-        const saved = { ...order, productName, buyerPhone: get().user?.phone, id, at: Date.now(), reviewed: false, status: "new" };
+        let remote;
+        try {
+          remote = await placeSouqOrder({ data: { shopSlug: order.shopSlug, productName, addressName: order.addressName } });
+        } catch {
+          return { ok: false as const, error: "server" as const };
+        }
+        if (!remote.ok) return remote;
+        const saved = { ...order, productName, id: remote.id, at: Date.now(), reviewed: false, status: "new" as const };
+        delete saved.buyerPhone;
+        delete saved.phone;
         const notes = [
           {
             id: `n-${Date.now()}`,
@@ -1135,7 +1143,7 @@ const useSession = create<any>()(
           ...get().notes
         ];
         withBuyer(get, set, { orders: [saved, ...get().orders], notes });
-        return placeSouqOrder({ data: { shopSlug: order.shopSlug, productName, addressName: order.addressName } });
+        return remote;
       },
       voteReview: (key: any, vote: any) => {
         const phone = get().user?.phone;

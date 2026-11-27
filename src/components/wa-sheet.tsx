@@ -157,12 +157,17 @@ export function WhatsAppCta({
         addressName,
         total: grand,
       });
-      const waPhone = res?.ok ? String(res.waPhone ?? "") : "";
-      if (!/^9627[789]\d{7}$/.test(waPhone)) {
+      if (!res?.ok) {
         win?.close();
         setSendError(res?.error === "rate"
           ? "Too many requests, try again later · طلبات كثيرة، جرّب لاحقاً"
-          : lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
+          : t.orderUnrecorded);
+        return;
+      }
+      const waPhone = String(res.waPhone ?? "");
+      if (!/^9627[789]\d{7}$/.test(waPhone)) {
+        win?.close();
+        setSendError(lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
         return;
       }
       const href = `https://wa.me/${waPhone}?text=${encodeURIComponent(orderMessage)}`;
@@ -175,7 +180,7 @@ export function WhatsAppCta({
       onSent?.();
     } catch {
       win?.close();
-      setSendError(lang === "ar" ? "تعذر فتح واتساب. جرّب مرة ثانية." : "Couldn't open WhatsApp. Try again.");
+      setSendError(t.orderUnrecorded);
     } finally {
       setSending(false);
     }

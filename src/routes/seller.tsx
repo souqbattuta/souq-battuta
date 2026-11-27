@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type TouchEvent } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PLANS, WHATSAPP_REQUIRED, displayPlan, normalizePlan, type ItemChoice, type PlanId } from "@/lib/data";
 import { billingPhase, isShopWhatsapp, slugForSeller, socialVerifyCode, stallNameTaken, useSession, type BuyerOrder, type MailThread, type OptionSet, type SocialNetwork, type StallSocial } from "@/lib/session";
@@ -13,7 +13,8 @@ import { HelloComposer } from "@/components/hello-board";
 import { OptImg } from "@/components/opt-img";
 import { PaymentDialog, type PaymentChoice } from "@/components/payment-dialog";
 import { builtInKeywords } from "@/lib/shelves";
-import { confirmWhatsappChange, requestWhatsappChange } from "@/lib/souq-sync";
+import { confirmWhatsappChange, listShopOrders, orderReplyLink, patchSouqOrder, requestWhatsappChange } from "@/lib/souq-sync";
+import type { ShopOrder, ShopOrderStatus } from "@/lib/shop-orders";
 import { absoluteUrl, keepLang } from "@/lib/site";
 
 type DeskTab = "edit" | "analytics" | "orders" | "inbox" | "reviews" | "notes" | "promos" | "hello";
@@ -58,7 +59,6 @@ function SellerDesk() {
   const addPromotion = useSession((s) => s.addPromotion);
   const setStall = useSession((s) => s.setStall);
   const setSellerContact = useSession((s) => s.setSellerContact);
-  const completeDeskOrder = useSession((s) => s.completeDeskOrder);
   const replyToReview = useSession((s) => s.replyToReview);
   const reviewReplies = useSession((s) => s.reviewReplies);
   const sellerCleared = useSession((s) => s.sellerCleared);
@@ -107,6 +107,40 @@ function SellerDesk() {
   const [aboutAr, setAboutAr] = useState("");
   const [aboutReady, setAboutReady] = useState(false);
   const [noteKind, setNoteKind] = useState<"reviews" | "orders" | "views">("orders");
+  const [shopOrders, setShopOrders] = useState<ShopOrder[]>([]);
+  const shopOrdersRef = useRef<ShopOrder[]>([]);
+  shopOrdersRef.current = shopOrders;
+
+  async function loadShopOrders() {
+    if (user?.role !== "seller") return;
+    const res = await listShopOrders();
+    if (!res.ok) return;
+    setShopOrders(res.orders);
+  }
+
+  useEffect(() => {
+    if (user?.role !== "seller") return;
+    let stop = false;
+    void listShopOrders().then((res) => {
+      if (stop || !res.ok) return;
+      setShopOrders(res.orders);
+    });
+    return () => {
+      stop = true;
+    };
+  }, [tabFromUrl, user?.role, user?.phone]);
+
+  async function setOrderStatus(id: string, status: ShopOrderStatus) {
+    const prev = shopOrdersRef.current;
+    const next = prev.map((order) => (order.id === id ? { ...order, status } : order));
+    shopOrdersRef.current = next;
+    setShopOrders(next);
+    const res = await patchSouqOrder({ data: { orderId: id, status } });
+    if (!res.ok) {
+      shopOrdersRef.current = prev;
+      setShopOrders(prev);
+    }
+  }
   const ar = lang === "ar";
 
   useEffect(() => {
@@ -318,7 +352,7 @@ function SellerDesk() {
   const workTabs: { id: DeskTab; en: string; ar: string; mark?: number }[] = [
     { id: "hello", en: "Hello, World!", ar: "Hello, World!" },
     { id: "analytics", en: "Analytics", ar: "التحليلات" },
-    { id: "orders", en: "Orders", ar: "الطلبات", mark: inquiries.filter((order) => order.status !== "done").length },
+    { id: "orders", en: "Orders", ar: "الطلبات", mark: shopOrders.filter((order) => order.status === "new" || order.status === "preparing").length },
     { id: "inbox", en: "Inbox", ar: "الوارد" },
     { id: "reviews", en: "Reviews", ar: "التقييمات" },
     { id: "notes", en: "Notifications", ar: "التنبيهات", mark: alerts.length },
@@ -846,14 +880,10 @@ function SellerDesk() {
         {tab === "orders" && (
           <OrderBoard
             ar={ar}
-            orders={inquiries.map((order) => ({
-              ...order,
-              buyerName: (order.buyerPhone && accounts[order.buyerPhone]?.username) || (ar ? "مشتري" : "Buyer"),
-              ref: orderRef(order.id),
-            }))}
+            orders={shopOrders}
             selectedId={orderFromUrl}
-            onOpen={(id) => void navigate({ to: "/seller", search: { tab: "orders", item: "", order: id, note: "" } })}
-            onComplete={completeDeskOrder}
+            onRefresh={() => void loadShopOrders()}
+            onStatus={(id, status) => void setOrderStatus(id, status)}
           />
         )}
         {tab === "inbox" && (
@@ -939,7 +969,7 @@ function SellerDesk() {
         <SellerPhoneBar
           ar={ar}
           tab={phoneTab}
-          marks={{ today: alerts.length, items: 0, shop: 0, more: inquiries.filter((order) => order.status !== "done").length }}
+          marks={{ today: alerts.length, items: 0, shop: 0, more: shopOrders.filter((order) => order.status === "new" || order.status === "preparing").length }}
           onPick={(id) => {
             setPhoneTab(id);
             setMoreOpen(id === "more");
@@ -1394,8 +1424,112 @@ function membershipLine(planEnds: number | undefined, ar: boolean) {
   return ar ? `${days} أيام باقية · ينتهي ${date}` : `${days} days left · ends ${date}`;
 }
 
-function orderRef(id: string) {
-  return id;
+const ORDER_STATUSES: { id: ShopOrderStatus; label: string }[] = [
+  { id: "new", label: "New · جديد" },
+  { id: "preparing", label: "Preparing · قيد التحضير" },
+  { id: "done", label: "Done · تم" },
+  { id: "cancelled", label: "Cancelled · ملغي" },
+];
+
+function OrderBoard({
+  ar,
+  orders,
+  selectedId,
+  onRefresh,
+  onStatus,
+}: {
+  ar: boolean;
+  orders: ShopOrder[];
+  selectedId: string;
+  onRefresh: () => void;
+  onStatus: (id: string, status: ShopOrderStatus) => void;
+}) {
+  const pullStart = useRef<number | null>(null);
+  const pullRef = useRef(0);
+  const [pull, setPull] = useState(0);
+  const [replyNote, setReplyNote] = useState("");
+  const [replyFor, setReplyFor] = useState("");
+
+  useEffect(() => {
+    if (!selectedId) return;
+    document.getElementById(`desk-order-${selectedId}`)?.scrollIntoView({ block: "nearest" });
+  }, [selectedId, orders]);
+
+  function onTouchStart(event: TouchEvent) {
+    if (window.scrollY > 8) return;
+    pullStart.current = event.touches[0]?.clientY ?? null;
+  }
+  function onTouchMove(event: TouchEvent) {
+    if (pullStart.current == null || window.scrollY > 8) return;
+    const y = event.touches[0]?.clientY ?? pullStart.current;
+    const dy = y - pullStart.current;
+    const next = dy > 0 ? Math.min(72, dy) : 0;
+    pullRef.current = next;
+    setPull(next);
+  }
+  function onTouchEnd() {
+    const refresh = pullRef.current >= 56;
+    pullStart.current = null;
+    pullRef.current = 0;
+    setPull(0);
+    if (refresh) onRefresh();
+  }
+
+  async function reply(orderId: string) {
+    const win = window.open("", "_blank");
+    setReplyFor(orderId);
+    setReplyNote("");
+    const res = await orderReplyLink({ data: { orderId } });
+    const href = res.ok ? res.href : "";
+    if (!href.startsWith("https://wa.me/") || href.includes("?")) {
+      win?.close();
+      setReplyNote(res.ok ? "" : res.error === "rate" ? "Too many requests, try again later · طلبات كثيرة، جرّب لاحقاً" : "");
+      return;
+    }
+    if (win) win.location.href = href;
+    else window.location.assign(href);
+  }
+
+  return (
+    <section
+      className="desk-orders mt-6"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <ul className="divide-y divide-line rounded-xl border border-line bg-white" style={pull ? { transform: `translateY(${Math.min(pull, 48)}px)` } : undefined}>
+        {orders.length === 0 && <li className="p-4 text-sm text-mute">{ar ? "ما في طلبات مفتوحة." : "No open orders."}</li>}
+        {orders.map((order) => (
+          <li key={order.id} id={`desk-order-${order.id}`} className="desk-order grid gap-2 px-3 py-3">
+            <p className="font-semibold">{order.productName}</p>
+            {order.addressName ? <p className="text-sm text-mute">{order.addressName}</p> : null}
+            <p className="text-sm">{order.username || (ar ? "مشتري" : "Buyer")}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ORDER_STATUSES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={order.status === item.id}
+                  className={`min-h-11 rounded-md px-3 text-sm font-semibold ${order.status === item.id ? "bg-ink text-cream" : "border border-line bg-white text-ink"}`}
+                  onClick={() => onStatus(order.id, item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-wa px-3 text-center text-sm font-semibold leading-snug text-white"
+              onClick={() => void reply(order.id)}
+            >
+              Reply on WhatsApp · رد على واتساب
+            </button>
+            {replyFor === order.id && replyNote ? <p className="text-sm text-red">{replyNote}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function orderedListings<T extends { group?: string; name: string }>(items: T[]) {
@@ -1409,89 +1543,6 @@ function orderedListings<T extends { group?: string; name: string }>(items: T[])
     const bi = order.indexOf((b.group || "").toLocaleLowerCase());
     return ai - bi || a.name.localeCompare(b.name);
   });
-}
-
-function dayKey(at: number) {
-  const date = new Date(at);
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function OrderBoard({
-  ar,
-  orders,
-  selectedId,
-  onOpen,
-  onComplete,
-}: {
-  ar: boolean;
-  orders: (BuyerOrder & { buyerName: string; ref: string })[];
-  selectedId: string;
-  onOpen: (id: string) => void;
-  onComplete: (id: string) => void;
-}) {
-  const open = orders.filter((order) => order.status !== "done");
-  const done = orders.filter((order) => order.status === "done");
-  const selected = orders.find((order) => order.id === selectedId);
-  const days: { key: string; label: string; items: typeof done }[] = [];
-  for (const order of done) {
-    const key = dayKey(order.at);
-    const found = days.find((day) => day.key === key);
-    if (found) found.items.push(order);
-    else days.push({ key, label: new Date(order.at).toLocaleDateString(ar ? "ar" : "en", { day: "numeric", month: "short", year: "numeric" }), items: [order] });
-  }
-  return (
-    <section className="mt-6">
-      <h2 className="font-display text-2xl">{ar ? "الطلبات المفتوحة" : "Open orders"}</h2>
-      <ul className="mt-3 divide-y divide-line rounded-xl border border-line bg-white">
-        {open.length === 0 && <li className="p-4 text-sm text-mute">{ar ? "ما في طلبات مفتوحة." : "No open orders."}</li>}
-        {open.map((order) => (
-          <li key={order.id} id={`desk-order-${order.id}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <button type="button" className="min-w-0 flex-1 text-start" onClick={() => onOpen(order.id)}>
-              <b className="block">{order.ref}</b>
-              <span className="text-sm text-mute">{order.buyerName} · {order.total ?? 0} JOD</span>
-            </button>
-            <button type="button" className="h-10 rounded-md bg-ink px-3 text-sm font-semibold text-cream" onClick={() => onComplete(order.id)}>{ar ? "اكتمل" : "Complete"}</button>
-          </li>
-        ))}
-      </ul>
-      <h2 className="mt-6 font-display text-2xl">{ar ? "الطلبات السابقة" : "Previous orders"}</h2>
-      <div className="mt-3 space-y-4">
-        {days.map((day) => (
-          <div key={day.key}>
-            <p className="text-xs font-semibold tracking-wide text-mute">{day.label}</p>
-            <ul className="mt-1 divide-y divide-line rounded-xl border border-line bg-white">
-              {day.items.map((order) => (
-                <li key={order.id}>
-                  <button type="button" className="flex w-full items-center justify-between px-4 py-3 text-start" onClick={() => onOpen(order.id)}>
-                    <span>
-                      <b className="block">{order.ref}</b>
-                      <span className="text-sm text-mute">{order.buyerName}</span>
-                    </span>
-                    <span className="text-sm">{order.total ?? 0} JOD</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-      {selected && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 sm:items-center" onClick={() => onOpen("")}>
-          <div className="w-full max-w-md rounded-xl bg-paper p-4 shadow-md" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-display text-2xl">{selected.ref}</h3>
-              <button type="button" className="size-10 text-xl" aria-label="Close" onClick={() => onOpen("")}>×</button>
-            </div>
-            <p className="mt-2 text-sm font-semibold">{selected.buyerName}</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm">{selected.productName}</p>
-            <p className="mt-2 text-sm">{ar ? "المجموع" : "Total"} · {selected.total ?? 0} JOD</p>
-            {selected.addressName && <p className="mt-1 text-sm text-mute">{selected.addressName}</p>}
-            <p className="mt-1 text-xs text-mute">{new Date(selected.at).toLocaleString()}</p>
-          </div>
-        </div>
-      )}
-    </section>
-  );
 }
 
 const SOCIAL_NETWORKS: { id: SocialNetwork; en: string; ar: string }[] = [
