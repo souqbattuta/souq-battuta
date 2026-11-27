@@ -295,7 +295,9 @@ function SellerDesk() {
       setListError(
         code === "limit"
           ? (ar ? `هذه الخطة تسمح بـ ${plan.listings} منتجات.` : `This plan allows ${plan.listings} listings.`)
-          : code === "storage" || code === "type" || code === "size"
+          : code === "storage"
+            ? t.photoStorage
+            : code === "type" || code === "size"
             ? (ar ? "الصورة ما انحفظت. جرب صورة أصغر." : "The photo was not saved. Try a smaller one.")
             : code === "rate"
               ? t.photoRate
@@ -609,8 +611,8 @@ function SellerDesk() {
             )}
             {editPane === "photo" && plan.photo && (
               <div className="mt-4 grid gap-6">
-                <PhotoStudio label={ar ? "صورة الغلاف" : "Header"} shape="header" src={account?.stallCover || ""} frameId={`cover:${profileSlug}`} onSrc={(src) => { void setStall({ stallCover: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : "")); }} />
-                <PhotoStudio label={ar ? "صورة الدكان" : "Profile photo"} shape="avatar" src={account?.stallAvatar || ""} frameId={`avatar:${profileSlug}`} onSrc={(src) => { void setStall({ stallAvatar: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : "")); }} />
+                <PhotoStudio label={ar ? "صورة الغلاف" : "Header"} shape="header" src={account?.stallCover || ""} frameId={`cover:${profileSlug}`} onSrc={(src) => { void setStall({ stallCover: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : res?.error === "storage" ? t.photoStorage : "")); }} />
+                <PhotoStudio label={ar ? "صورة الدكان" : "Profile photo"} shape="avatar" src={account?.stallAvatar || ""} frameId={`avatar:${profileSlug}`} onSrc={(src) => { void setStall({ stallAvatar: src }).then((res) => setPhotoError(res?.error === "rate" ? t.photoRate : res?.error === "storage" ? t.photoStorage : "")); }} />
                 {photoError && <p className="text-sm text-red" role="alert">{photoError}</p>}
               </div>
             )}

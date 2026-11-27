@@ -13,6 +13,7 @@ import { slugHasPhone } from "@/lib/site";
 import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
 import { deleteConfirmedAccount, releaseOwnedMedia } from "@/lib/account-delete";
 import { buyerReplyHref, readShopOrders, replyLinkForShop, sellerShopSlug } from "@/lib/shop-orders";
+import { encodeShopPhoto, saveShopPhoto } from "@/lib/object-store";
 import { searchLiveShops } from "@/lib/public-search";
 
 const COOKIE = "souq_session";
@@ -1610,41 +1611,13 @@ async function storeImage(dataUrl: string, kind: "listing" | "hello") {
   if (!match) return { ok: false as const, error: "type" as const };
   const bytes = Buffer.from(match[2], "base64");
   if (bytes.length > 5_000_000) return { ok: false as const, error: "size" as const };
-  const longest = kind === "hello" ? 1080 : 1600;
-  let main = bytes;
-  let thumb = bytes;
-  let type = match[1];
-  try {
-    const sharp = (await import("sharp")).default;
-    const picture = sharp(bytes, { failOn: "none" }).rotate();
-    main = await picture.clone().resize({ width: longest, height: longest, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
-    thumb = await picture.clone().resize({ width: 400, height: 400, fit: "cover" }).webp({ quality: 76 }).toBuffer();
-    type = "image/webp";
-  } catch {
-    return { ok: false as const, error: "type" as const };
-  }
+  const encoded = await encodeShopPhoto(bytes, kind);
+  if (!encoded.ok) return { ok: false as const, error: "type" as const };
   if (!(await allowPhotoUpload((bucket, limit, windowSeconds) => hitRate(sql, bucket, limit, windowSeconds), phone))) {
     return { ok: false as const, error: "rate" as const };
   }
   const id = s.randomBytes(8).toString("hex");
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (token) {
-    const { put } = await import("@vercel/blob");
-    const folder = `${kind}/${sha256(s, phone)}`;
-    const big = await put(`${folder}/${id}.webp`, main, { access: "public", token, contentType: type });
-    const small = await put(`${folder}/${id}-thumb.webp`, thumb, { access: "public", token, contentType: type });
-    return { ok: true as const, url: big.url, thumbUrl: small.url };
-  }
-  if (process.env.NODE_ENV === "production") {
-    console.error("[souq] BLOB_READ_WRITE_TOKEN is missing in production");
-    return { ok: false as const, error: "storage" as const };
-  }
-  const { mkdir, writeFile } = await import("node:fs/promises");
-  const dir = "public/media";
-  await mkdir(dir, { recursive: true });
-  await writeFile(`${dir}/${id}.webp`, main);
-  await writeFile(`${dir}/${id}-thumb.webp`, thumb);
-  return { ok: true as const, url: `/media/${id}.webp`, thumbUrl: `/media/${id}-thumb.webp` };
+  return saveShopPhoto({ kind, phoneHash: sha256(s, phone), id, main: encoded.main, thumb: encoded.thumb });
 }
 
 export const publishHello = createServerFn({ method: "POST" })

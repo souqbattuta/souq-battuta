@@ -1864,7 +1864,8 @@ const useSession = create<any>()(
           if (typeof value === "string" && value.startsWith("data:")) {
             const up = await uploadListingImage({ data: { dataUrl: value, kind: "listing" } });
             if (!up.ok) {
-              if ("error" in up && up.error === "rate") return { ok: false as const, error: "rate" as const };
+              const code = "error" in up ? up.error : "storage";
+              if (code === "rate" || code === "storage") return { ok: false as const, error: code };
               delete clean[key];
             } else {
               clean[key] = up.url;
