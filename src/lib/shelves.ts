@@ -6,13 +6,14 @@ import { synonymForms } from "./synonyms.ts";
 
 export { foldText } from "./fold-text.ts";
 
-const CATEGORY_WORDS: Record<string, [string, string]> = {
+const CATEGORY_WORDS: Record<string, readonly string[]> = {
   food: ["food", "طعام"],
   handicrafts: ["handicrafts", "حرف يدوية"],
   jewelry: ["jewelry", "مجوهرات"],
   "farmers-market": ["farmers market", "سوق المزارعين"],
   beauty: ["beauty", "جمال"],
   clothes: ["clothes", "ملابس"],
+  pets: ["pets", "pet supplies", "pet food", "cat food", "dog food", "grooming", "حيوانات أليفة", "مستلزمات حيوانات", "أكل قطط", "أكل كلاب"],
   misc: ["misc", "متنوع"],
 };
 
@@ -24,7 +25,7 @@ export function builtInKeywords(ids: string[] = []) {
     if (!cat || cat.id === "all") continue;
     words.push(cat.en, cat.ar);
     const extra = CATEGORY_WORDS[id];
-    if (extra) words.push(extra[0], extra[1]);
+    if (extra) words.push(...extra);
   }
   return [...new Set(words.map((word) => word.trim()).filter((word) => word.length >= 2))];
 }

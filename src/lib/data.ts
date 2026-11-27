@@ -25,9 +25,10 @@ export type CategoryId =
   | "handicrafts"
   | "jewelry"
   | "farmers-market"
-  | "misc"
   | "beauty"
   | "clothes"
+  | "pets"
+  | "misc"
   | "all";
 
 export type ItemOption = {
@@ -273,7 +274,7 @@ export const PLANS: Record<
   },
 };
 
-export const SELLER_CATEGORY_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"] as const;
+export const SELLER_CATEGORY_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "beauty", "clothes", "pets", "misc"] as const;
 export const LAUNCH_CATEGORY_IDS: CategoryId[] = [...SELLER_CATEGORY_IDS];
 export const OFFERED_PLANS: PlanId[] = FREE_TIER_ENABLED ? ["free", "basic", "pro", "premium"] : ["basic", "pro", "premium"];
 
@@ -300,9 +301,10 @@ export const CATEGORIES: {
   { id: "handicrafts", en: "Handicrafts", ar: "حرف يدوية", icon: "/brand/icons/icon-handicrafts.jpg" },
   { id: "jewelry", en: "Jewelry", ar: "مجوهرات", icon: "/brand/icons/icon-jewelry.jpg" },
   { id: "farmers-market", en: "Farmers Market", ar: "سوق المزارعين", icon: "/brand/icons/icon-farmers-market.jpg" },
-  { id: "misc", en: "Misc", ar: "متنوع", icon: "/brand/icons/icon-misc.jpg" },
   { id: "beauty", en: "Beauty", ar: "جمال", icon: "/brand/icons/icon-beauty.jpg" },
   { id: "clothes", en: "Clothes", ar: "ملابس", icon: "/brand/icons/icon-clothes.jpg" },
+  { id: "pets", en: "For your Pets", ar: "للحيوانات الأليفة", icon: "/brand/icons/icon-pets.jpg" },
+  { id: "misc", en: "Misc", ar: "متنوع", icon: "/brand/icons/icon-misc.jpg" },
   { id: "all", en: "All", ar: "الكل", icon: "/brand/icons/icon-all.jpg" },
 ];
 

@@ -16,7 +16,7 @@ export type SellerListing = any;
 import { claimSouq, deleteHelloPost, deleteMyPlace, deleteSouqListing, deleteSouqReview, editHello, helloQuota, listHello, listMyPlaces, listPublicShops, patchSouqOrder, placeSouqOrder, publishHello, recordShopView, reportTarget, repostHello as repostHelloServer, saveMyPlace, saveSouqListing, saveSouqReview, sendSouqOtp, setSouqListingHidden, setSouqSignupPlan, signOutSouq, stageSouqSignup, submitSouqPayment, syncSouqAlgo, uploadListingImage, verifySouqOtp } from "@/lib/souq-sync";
 import { deviceMarkKey, mergeDeviceSession, persistedSession, scrubStoredSession } from "./device-session";
 import { freePhotoQuota, offloadImages } from "./image-store";
-import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
+import { PLANS, SHOPS, SHOP_WHATSAPP, WHATSAPP_REQUIRED, isCategoryId, normalizePlan, type CategoryId, type PlanId, type Shop } from "./data";
 import { checkPromo, PROMO_CODES } from "./promo-codes";
 import { isReservedBrand, usernameKey } from "./reserved-brand";
 import { shopSlugSeed, usableShopSlug } from "./shop-slug";
@@ -228,7 +228,7 @@ function billingPhase(account: any) {
 let remoteShops: Shop[] = [];
 
 function asCategory(id: string): CategoryId | null {
-  return id === "food" || id === "handicrafts" || id === "jewelry" || id === "farmers-market" || id === "misc" || id === "beauty" || id === "clothes" || id === "all" ? id : null;
+  return isCategoryId(id) ? id : null;
 }
 
 function asPlan(id: string): PlanId {

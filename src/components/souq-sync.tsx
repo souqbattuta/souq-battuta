@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { LAUNCH_CATEGORY_IDS } from "@/lib/data";
 import { getSouqMe, pushSouq } from "@/lib/souq-sync";
 import { slugHasPhone } from "@/lib/site";
 import { sessionEpoch, useSession } from "@/lib/session";
@@ -124,7 +125,7 @@ export function SouqSync() {
         else body.whatsappPhone = whatsapp;
       }
       if (Array.isArray(body.categories)) {
-        const launch = new Set(["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes"]);
+        const launch = new Set<string>(LAUNCH_CATEGORY_IDS);
         body.categories = (body.categories as unknown[]).filter((id) => typeof id === "string" && launch.has(id)).slice(0, 2);
       }
       const snap = JSON.stringify(body);

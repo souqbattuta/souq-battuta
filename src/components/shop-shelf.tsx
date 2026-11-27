@@ -82,7 +82,7 @@ function useReturnPeek(id: string, shops: Shop[]) {
   return { index, remember, savedScroll };
 }
 
-const CAT_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "misc", "beauty", "clothes", "all"] as const;
+const CAT_IDS = ["food", "handicrafts", "jewelry", "farmers-market", "beauty", "clothes", "pets", "misc", "all"] as const;
 
 export function CategoryRail({ ar, active }: { ar: boolean; active?: string }) {
   const scroller = useRef<HTMLDivElement>(null);

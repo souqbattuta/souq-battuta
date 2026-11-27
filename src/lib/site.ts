@@ -145,9 +145,10 @@ export const PUBLIC_CATEGORIES: { id: string; en: string; ar: string }[] = [
   { id: "handicrafts", en: "Handicrafts", ar: "حرف يدوية" },
   { id: "jewelry", en: "Jewelry", ar: "مجوهرات" },
   { id: "farmers-market", en: "Farmers Market", ar: "سوق المزارعين" },
-  { id: "misc", en: "Misc", ar: "متنوع" },
   { id: "beauty", en: "Beauty", ar: "جمال" },
   { id: "clothes", en: "Clothes", ar: "ملابس" },
+  { id: "pets", en: "For your Pets", ar: "للحيوانات الأليفة" },
+  { id: "misc", en: "Misc", ar: "متنوع" },
 ];
 
 const PRIVATE_EXACT = new Set([
