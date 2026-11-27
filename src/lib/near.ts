@@ -1,4 +1,5 @@
-import type { Shop } from "./data";
+import type { Shop } from "./data.ts";
+import { planTie } from "./plan-tie.ts";
 
 export type AmmanArea = { en: string; ar: string; lat: number; lng: number };
 
@@ -101,10 +102,19 @@ export function kmBetween(a: { lat: number; lng: number }, b: { lat: number; lng
   return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/** Distances under 0.05 km count as the same, so a pin's jitter does not hide the plan tie-break. */
+export function compareNear(a: { km: number; plan: string }, b: { km: number; plan: string }) {
+  if (Math.abs(a.km - b.km) < 0.05) {
+    const plan = planTie(b.plan) - planTie(a.plan);
+    if (plan) return plan;
+  }
+  return a.km - b.km;
+}
+
 export function nearest(shops: Shop[], origin: { lat: number; lng: number }) {
   return shops
     .map((shop) => ({ shop, km: kmBetween(origin, shopPoint(shop)) }))
-    .sort((a, b) => a.km - b.km);
+    .sort((a, b) => compareNear({ km: a.km, plan: a.shop.plan }, { km: b.km, plan: b.shop.plan }));
 }
 
 /** xoshiro128** from a 128-bit seed. Returns a float in [0, 1). */

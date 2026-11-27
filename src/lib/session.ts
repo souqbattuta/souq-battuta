@@ -239,7 +239,7 @@ export function setRemoteShops(shops: Shop[]) {
   remoteShops = shops;
 }
 
-function shopFromPublic(row: {
+export function shopFromPublic(row: {
   slug: string;
   name: string;
   area: string;

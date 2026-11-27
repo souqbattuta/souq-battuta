@@ -1,4 +1,4 @@
-import { PLANS, normalizePlan, type PlanId, type Shop } from "./data";
+import { PLANS, normalizePlan, type PlanId, type Shop } from "./data.ts";
 import { hasWord } from "./shelves.ts";
 
 export type HelloPost = {

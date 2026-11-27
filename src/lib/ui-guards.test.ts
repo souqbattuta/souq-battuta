@@ -45,7 +45,9 @@ test("an item search with no matches hides empty groups and can be cleared by ma
   assert.deepEqual(sectionsWithMatches(sections, "zzzz-no-such-item"), []);
   assert.equal(productMatches(item("Cloth leash"), "leash"), true);
   assert.equal(productMatches(item("Cloth leash"), "LEASH"), true);
-  assert.equal(productMatches(item("Party tray"), "art"), true);
+  assert.equal(productMatches(item("Party tray"), "art"), false);
+  assert.equal(productMatches({ ...item("Tray"), nameAr: "كنافة" }, "knafeh"), true);
+  assert.equal(productMatches({ ...item("Tray"), nameAr: "كُنَافَة" }, "kunafa"), true);
   const restored = sectionsWithMatches(sections, "");
   assert.equal(restored.length, 2);
   assert.equal(restored[0].items.length, 1);

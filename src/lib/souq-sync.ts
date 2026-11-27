@@ -13,6 +13,7 @@ import { slugHasPhone } from "@/lib/site";
 import { allowPhotoUpload, allowReport, allowReviewWrite, deleteBuyerReview, fileReport, reviewAuthorName, shopAcceptsReviews, writeBuyerReview } from "@/lib/abuse";
 import { deleteConfirmedAccount, releaseOwnedMedia } from "@/lib/account-delete";
 import { buyerReplyHref, readShopOrders, replyLinkForShop, sellerShopSlug } from "@/lib/shop-orders";
+import { searchLiveShops } from "@/lib/public-search";
 
 const COOKIE = "souq_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 14;
@@ -1981,6 +1982,29 @@ export const listPublicShops = createServerFn({ method: "GET" })
         };
       }),
     };
+  });
+
+export const searchPublicShops = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      q: z.string().trim().max(80),
+      follows: z.array(z.string().trim().min(1).max(80)).max(80).optional(),
+    }).strict(),
+  )
+  .handler(async ({ data }) => {
+    const sql = await db();
+    const phone = await sessionPhone(sql);
+    let follows: string[] = [];
+    let interestWords: string[] = [];
+    if (phone) {
+      const account = await loadAccount(sql, phone);
+      const stored = account?.data?.follows;
+      const fromAccount = Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string") : [];
+      follows = [...new Set([...fromAccount, ...(data.follows ?? [])])].slice(0, 80);
+      interestWords = account ? readAlgo(account.data ?? {}).interestWords.filter((word) => typeof word === "string") : [];
+    }
+    const shops = await searchLiveShops(sql, { query: data.q, follows, interestWords });
+    return { ok: true as const, shops };
   });
 
 export const listHello = createServerFn({ method: "GET" })

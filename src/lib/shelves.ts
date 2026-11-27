@@ -1,5 +1,10 @@
 import { useLayoutEffect, useState } from "react";
 import { CATEGORIES, type Shop } from "./data.ts";
+import { foldText } from "./fold-text.ts";
+import { planTie } from "./plan-tie.ts";
+import { synonymForms } from "./synonyms.ts";
+
+export { foldText } from "./fold-text.ts";
 
 const CATEGORY_WORDS: Record<string, [string, string]> = {
   food: ["food", "طعام"],
@@ -22,6 +27,12 @@ export function builtInKeywords(ids: string[] = []) {
     if (extra) words.push(extra[0], extra[1]);
   }
   return [...new Set(words.map((word) => word.trim()).filter((word) => word.length >= 2))];
+}
+
+export function categorySearchText(id: string) {
+  const cat = CATEGORIES.find((item) => item.id === id);
+  const extra = CATEGORY_WORDS[id] ?? [];
+  return [id.replace(/-/g, " "), cat?.en ?? "", cat?.ar ?? "", ...extra].filter(Boolean).join(" ");
 }
 
 export function shopText(shop: Shop) {
@@ -78,23 +89,18 @@ function escapeWord(word: string) {
   return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function foldText(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[أإآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/ؤ/g, "و")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Whole word or whole phrase. "art" does not match "party". */
-export function hasWord(text: string, word: string) {
+function wordHit(text: string, word: string) {
   const clean = foldText(word);
   if (clean.length < 2) return false;
   const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\u0627\\u0644)?${escapeWord(clean)}(?![\\p{L}\\p{N}])`, "iu");
   return re.test(foldText(text));
+}
+
+/** Whole word or whole phrase. "art" does not match "party". Synonym forms count. */
+export function hasWord(text: string, word: string) {
+  const forms = synonymForms(word);
+  if (!forms.length) return false;
+  return forms.some((form) => wordHit(text, form));
 }
 
 export function shopMuted(shop: Shop, mutedWords: string[] = [], mutedStalls: string[] = []) {
@@ -214,7 +220,7 @@ export function rankForYou(
       seen.add(shop.slug);
       return true;
     })
-    .sort((a, b) => score(b) - score(a) || tie(a.slug) - tie(b.slug));
+    .sort((a, b) => score(b) - score(a) || planTie(b.plan) - planTie(a.plan) || tie(a.slug) - tie(b.slug));
 }
 
 export function showInForYou(shop: Shop) {
@@ -222,11 +228,8 @@ export function showInForYou(shop: Shop) {
   return photos.some((src) => typeof src === "string" && src.length > 0 && !/duck\.jpg|placeholder|default-duck/i.test(src));
 }
 
-const PLAN_BOOST: Record<string, number> = { premium: 4, pro: 3, grow: 3, basic: 2, free: 1 };
-
-/** Small nudge for Explore and category browse. Not used by For You. */
-export function browseNudge(plan: string) {
-  return plan === "premium" ? 3 : plan === "pro" ? 2 : plan === "basic" ? 1 : 0;
+function placeStamp(shop: Shop) {
+  return shop.createdAt ?? shop.joinedAt ?? 0;
 }
 
 export function newPlacesShelf(shops: Shop[]) {
@@ -239,7 +242,30 @@ export function newPlacesShelf(shops: Shop[]) {
       seen.add(shop.slug);
       return true;
     })
-    .sort((a, b) => (PLAN_BOOST[b.plan] ?? 1) - (PLAN_BOOST[a.plan] ?? 1) || (b.createdAt ?? b.joinedAt ?? 0) - (a.createdAt ?? a.joinedAt ?? 0));
+    .sort((a, b) => placeStamp(b) - placeStamp(a) || planTie(b.plan) - planTie(a.plan));
+}
+
+/** Empty Discover: buyer signals when the person is signed in, then plan. */
+export function rankBrowse(
+  shops: Shop[],
+  input: { follows?: string[]; words?: string[]; personal?: boolean; tie?: (slug: string) => number },
+) {
+  const personal = input.personal !== false;
+  const follows = new Set(input.follows ?? []);
+  const words = (input.words ?? []).map((word) => word.trim()).filter((word) => word.length >= 2);
+  const tie = input.tie ?? (() => 0);
+  const buyer = (shop: Shop) => {
+    if (!personal) return 0;
+    let score = follows.has(shop.slug) ? 1000 : 0;
+    if (words.length) {
+      const blob = shopText(shop);
+      score += words.filter((word) => hasWord(blob, word)).length * 10;
+    }
+    if (shop.products.some((product) => !product.paused && !product.hideReason)) score += 1;
+    if (typeof shop.rating === "number" && shop.rating > 0) score += shop.rating;
+    return score;
+  };
+  return [...shops].sort((a, b) => buyer(b) - buyer(a) || planTie(b.plan) - planTie(a.plan) || tie(a.slug) - tie(b.slug));
 }
 
 export function readTieSeed() {
